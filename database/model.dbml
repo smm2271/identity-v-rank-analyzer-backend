@@ -1,0 +1,74 @@
+// 1. 使用者主表
+Table User {
+  id uuid [pk, default: `gen_random_uuid()`]
+  username varchar(50)
+  email varchar(255) [unique]
+  created_at timestamp [default: `now()`]
+  token_ver int [not null]
+  
+  agreed_to_terms_at timestamp [not null]
+}
+
+// 2. 身分驗證 (解耦登入用)
+Table user_identities {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [ref: > User.id]
+  provider varchar(20) [note: '例如: password, google, discord']
+  provider_key varchar(255)
+  secret_hash varchar(255)
+  
+  Indexes {
+    (provider, provider_key) [unique]
+  }
+}
+
+// 3. 客戶端用 API Key 表
+Table api_keys {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [ref: > User.id]
+  key_hash varchar(64) [note: '儲存 API Key 的雜湊值']
+  name varchar(50) [note: 'Key 的名稱，例如: Desktop-CLI']
+  is_active boolean [default: true]
+  created_at timestamp [default: `now()`]
+}
+
+// 4. 遊戲對戰全局資訊表 (增加分析用欄位)
+Table game_matches {
+  room_guuid uuid [pk]
+  creater_id uuid [ref: > User.id]
+  scene_id int [note: '地圖 ID']
+  match_type int [note: '1:排位, 2:匹配, 3:五人制']
+  rank_level int [note: '當時的段位，如 5 代表五階']
+  kill_num int
+  utype int [note: '1:監管 2:求生']
+  pid int [note: '我方角色id']
+  game_save_time timestamp
+  cipher_progress json [note: '各台密碼機修機進度']
+  created_at timestamp [default: `now()`]
+}
+
+// 5. 對局玩家資料
+Table player_info {
+  id int [pk, increment]
+  player_name varchar(14)
+  character_id int [not null]
+  res_type int
+
+  game_uuid uuid [ref: > game_matches.room_guuid]
+
+  Indexes {
+    (character_id, game_uuid) [unique]
+  }
+}
+
+// 6. 登入日誌表 (獨立出來以支持大數據分析與資安防禦)
+Table user_login_logs {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [ref: > User.id, note: '若為登入失敗且帳號不存在，此處可為 null']
+  identifier varchar(255) [note: '使用者嘗試登入的 Email 或 Username']
+  status varchar(20) [note: 'success, failed, locked']
+  failure_reason varchar(50) [note: 'invalid_password, user_not_found, account_locked']
+  ip_address varchar(45) [note: '紀錄來源 IP，用於偵測異常攻擊']
+  user_agent text [note: '辨識是 Python CLI 還是瀏覽器']
+  created_at timestamp [default: `now()`]
+}
