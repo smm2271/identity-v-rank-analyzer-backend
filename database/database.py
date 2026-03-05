@@ -1,7 +1,7 @@
 import os
 from typing import AsyncGenerator
 import dotenv
-from model import Base  # 引入模型定義，確保 metadata 可用來建立表格
+from database.model import Base  # 引入模型定義，確保 metadata 可用來建立表格
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
