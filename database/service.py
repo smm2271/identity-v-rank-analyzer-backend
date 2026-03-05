@@ -149,6 +149,45 @@ class UserService(BaseRepository[User]):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         super().__init__(User, session_factory)
 
+    async def create_user(
+        self,
+        *,
+        username: Optional[str] = None,
+        email: Optional[str] = None,
+        token_ver: int = 1,
+        agreed_to_terms_at: datetime,
+        provider: Optional[str] = None,
+        provider_key: Optional[str] = None,
+        secret_hash: Optional[str] = None,
+    ) -> User:
+        """
+        建立新使用者，可同時建立第一筆身份驗證來源。
+
+        User + UserIdentity 在同一個 transaction 中建立，
+        確保不會出現有 User 卻沒有 Identity 的狀況。
+        """
+        async with self._session_factory() as session:
+            user = User(
+                username=username,
+                email=email,
+                token_ver=token_ver,
+                agreed_to_terms_at=agreed_to_terms_at,
+            )
+            session.add(user)
+
+            # 若提供了 provider 資訊，一併建立身份
+            if provider and provider_key:
+                identity = UserIdentity(
+                    user=user,
+                    provider=provider,
+                    provider_key=provider_key,
+                    secret_hash=secret_hash,
+                )
+                session.add(identity)
+
+            await session.commit()
+            return user
+
     async def get_by_username(self, username: str) -> Optional[User]:
         """根據使用者名稱查詢"""
         async with self._session_factory() as session:
@@ -197,6 +236,26 @@ class UserIdentityService(BaseRepository[UserIdentity]):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         super().__init__(UserIdentity, session_factory)
 
+    async def create_identity(
+        self,
+        *,
+        user_id: uuid.UUID,
+        provider: str,
+        provider_key: str,
+        secret_hash: Optional[str] = None,
+    ) -> UserIdentity:
+        """為既有使用者新增一筆身份驗證來源"""
+        async with self._session_factory() as session:
+            identity = UserIdentity(
+                user_id=user_id,
+                provider=provider,
+                provider_key=provider_key,
+                secret_hash=secret_hash,
+            )
+            session.add(identity)
+            await session.commit()
+            return identity
+
     async def get_by_provider(
         self, provider: str, provider_key: str
     ) -> Optional[UserIdentity]:
@@ -225,6 +284,25 @@ class ApiKeyService(BaseRepository[ApiKey]):
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         super().__init__(ApiKey, session_factory)
+
+    async def create_api_key(
+        self,
+        *,
+        user_id: uuid.UUID,
+        key_hash: str,
+        name: Optional[str] = None,
+    ) -> ApiKey:
+        """為使用者建立新的 API Key"""
+        async with self._session_factory() as session:
+            api_key = ApiKey(
+                user_id=user_id,
+                key_hash=key_hash,
+                name=name,
+                is_active=True,
+            )
+            session.add(api_key)
+            await session.commit()
+            return api_key
 
     async def get_by_key_hash(self, key_hash: str) -> Optional[ApiKey]:
         """根據 key hash 查詢（用於驗證 API Key）"""
@@ -271,6 +349,51 @@ class GameMatchService(BaseRepository[GameMatch]):
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         super().__init__(GameMatch, session_factory)
+
+    async def create_match(
+        self,
+        *,
+        room_guuid: uuid.UUID,
+        creator_id: uuid.UUID,
+        scene_id: Optional[int] = None,
+        match_type: Optional[int] = None,
+        rank_level: Optional[int] = None,
+        kill_num: Optional[int] = None,
+        utype: Optional[int] = None,
+        pid: Optional[int] = None,
+        game_save_time: Optional[datetime] = None,
+        cipher_progress: Optional[Dict[str, Any]] = None,
+        players: Optional[List[Dict[str, Any]]] = None,
+    ) -> GameMatch:
+        """
+        建立對戰紀錄，可同時建立所有玩家資訊。
+
+        GameMatch + PlayerInfo 在同一個 transaction 中建立，
+        確保資料一致性（不會出現有對戰但沒有任何玩家的狀況）。
+        """
+        async with self._session_factory() as session:
+            match = GameMatch(
+                room_guuid=room_guuid,
+                creator_id=creator_id,
+                scene_id=scene_id,
+                match_type=match_type,
+                rank_level=rank_level,
+                kill_num=kill_num,
+                utype=utype,
+                pid=pid,
+                game_save_time=game_save_time,
+                cipher_progress=cipher_progress,
+            )
+            session.add(match)
+
+            # 若提供了玩家資訊，一併建立
+            if players:
+                for player_data in players:
+                    player = PlayerInfo(match=match, **player_data)
+                    session.add(player)
+
+            await session.commit()
+            return match
 
     async def get_by_room_guuid(
         self, room_guuid: uuid.UUID, creator_id: uuid.UUID
@@ -334,6 +457,28 @@ class PlayerInfoService(BaseRepository[PlayerInfo]):
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         super().__init__(PlayerInfo, session_factory)
+
+    async def create_player(
+        self,
+        *,
+        match_id: uuid.UUID,
+        player_id: int,
+        character_id: int,
+        player_name: Optional[str] = None,
+        res_type: Optional[int] = None,
+    ) -> PlayerInfo:
+        """建立單筆玩家資訊"""
+        async with self._session_factory() as session:
+            player = PlayerInfo(
+                match_id=match_id,
+                player_id=player_id,
+                character_id=character_id,
+                player_name=player_name,
+                res_type=res_type,
+            )
+            session.add(player)
+            await session.commit()
+            return player
 
     async def get_by_match(self, match_id: uuid.UUID) -> Sequence[PlayerInfo]:
         """取得某場對戰的所有玩家資訊"""
