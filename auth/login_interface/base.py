@@ -1,27 +1,65 @@
 """
 Login Interface — Abstract Base
 ================================
-定義所有 OAuth2 登入供應商必須實作的抽象介面。
+定義所有登入供應商必須實作的抽象介面。
+
+架構分層：
+- LoginProviderBase:       所有登入供應商的最小公約數（僅 get_provider_name）
+- OAuthLoginInterface:     OAuth2 供應商專用介面（Authorization Code Flow）
+- PasswordLoginInterface:  密碼登入專用介面（帳號 + 密碼驗證）
 
 遵循 SOLID 原則：
 - S: 介面只定義「登入流程」的契約，不包含業務邏輯。
-- O: 新增供應商只需繼承此介面並實作方法，無須修改現有程式碼。
-- L: 所有實作此介面的 Provider 可互相替換，上層程式碼無需感知具體類別。
-- I: 將 OAuth2 登入流程拆分為最小必要方法，消費端只依賴所需介面。
-- D: 上層邏輯依賴此抽象介面，不依賴具體的 Google/Discord 實作。
+- O: 新增供應商只需繼承對應介面並實作方法，無須修改現有程式碼。
+- L: 同一介面的所有實作可互相替換，上層程式碼無需感知具體類別。
+- I: OAuth 與 Password 拆分為獨立介面，消費端只依賴所需的方法。
+     密碼登入不需實作 get_authorization_url / exchange_code 等 OAuth 方法；
+     OAuth 登入不需實作 authenticate / hash_password 等密碼方法。
+- D: 上層邏輯依賴抽象介面，不依賴具體的 Google/Discord/Password 實作。
 
-對應 model.dbml：
-- user_identities.provider     → get_provider_name() 回傳值
-- user_identities.provider_key → OAuthUserInfo.provider_key
-- user_identities.secret_hash  → 可選擇性儲存 refresh_token 的雜湊值
+對應 model.dbml 的 user_identities 表：
+- provider      → get_provider_name() 回傳值 ('google', 'discord', 'password')
+- provider_key  → OAuth: 供應商的使用者 ID / Password: 使用者的 email
+- secret_hash   → OAuth: refresh_token 雜湊（可選）/ Password: bcrypt 密碼雜湊
 """
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
-from auth.login_interface.dto import OAuthAuthorizationUrl, OAuthTokens, OAuthUserInfo
+from auth.login_interface.dto import (
+    OAuthAuthorizationUrl,
+    OAuthTokens,
+    OAuthUserInfo,
+    PasswordAuthResult,
+)
 
 
-class OAuthLoginInterface(ABC):
+# ──────────────────────────────────────────────
+# Login Provider Base (所有登入方式的共用基底)
+# ──────────────────────────────────────────────
+class LoginProviderBase(ABC):
+    """
+    所有登入供應商的共用基底介面。
+
+    無論是 OAuth2 或密碼登入，都必須實作此方法。
+    Factory 透過 get_provider_name() 進行註冊與查詢。
+    """
+
+    @abstractmethod
+    def get_provider_name(self) -> str:
+        """
+        回傳供應商名稱（對應 user_identities.provider 欄位）。
+
+        Returns:
+            供應商識別字串，如 'google', 'discord', 'password'
+        """
+        ...
+
+
+# ──────────────────────────────────────────────
+# OAuth2 Login Interface
+# ──────────────────────────────────────────────
+class OAuthLoginInterface(LoginProviderBase):
     """
     OAuth2 登入供應商的抽象介面。
 
@@ -33,16 +71,6 @@ class OAuthLoginInterface(ABC):
     2. exchange_code()         → 使用者授權後，以 authorization code 換取 tokens
     3. fetch_user_info()       → 以 access_token 取得使用者資訊
     """
-
-    @abstractmethod
-    def get_provider_name(self) -> str:
-        """
-        回傳供應商名稱（對應 user_identities.provider 欄位）。
-
-        Returns:
-            供應商識別字串，如 'google', 'discord'
-        """
-        ...
 
     @abstractmethod
     async def get_authorization_url(
@@ -121,6 +149,94 @@ class OAuthLoginInterface(ABC):
         ...
 
 
+# ──────────────────────────────────────────────
+# Password Login Interface
+# ──────────────────────────────────────────────
+class PasswordLoginInterface(LoginProviderBase):
+    """
+    密碼登入供應商的抽象介面。
+
+    對應 model.dbml 的 user_identities 表：
+    - provider      = 'password'
+    - provider_key  = 使用者的 email（作為唯一識別）
+    - secret_hash   = bcrypt 密碼雜湊
+
+    實作此介面的類別負責：
+    1. authenticate()    → 驗證帳號密碼
+    2. hash_password()   → 將明文密碼轉為安全雜湊
+    3. verify_password() → 比對明文密碼與雜湊值
+    4. validate_password_strength() → 檢查密碼強度是否符合政策
+    """
+
+    @abstractmethod
+    async def authenticate(
+        self,
+        *,
+        identifier: str,
+        password: str,
+    ) -> PasswordAuthResult:
+        """
+        驗證使用者帳號密碼。
+
+        Args:
+            identifier: 登入識別（email）
+            password:   明文密碼
+
+        Returns:
+            PasswordAuthResult 包含驗證結果與使用者資訊
+
+        Raises:
+            PasswordAuthError: 驗證失敗
+        """
+        ...
+
+    @abstractmethod
+    def hash_password(self, password: str) -> str:
+        """
+        將明文密碼轉為安全雜湊值。
+
+        用於註冊或修改密碼時，產生 secret_hash 存入
+        user_identities.secret_hash 欄位。
+
+        Args:
+            password: 明文密碼
+
+        Returns:
+            bcrypt 雜湊字串
+        """
+        ...
+
+    @abstractmethod
+    def verify_password(self, password: str, hashed: str) -> bool:
+        """
+        比對明文密碼與儲存的雜湊值。
+
+        Args:
+            password: 使用者輸入的明文密碼
+            hashed:   資料庫中儲存的 bcrypt 雜湊值
+
+        Returns:
+            密碼是否正確
+        """
+        ...
+
+    @abstractmethod
+    def validate_password_strength(self, password: str) -> Optional[str]:
+        """
+        檢查密碼是否符合強度要求。
+
+        Args:
+            password: 待檢查的明文密碼
+
+        Returns:
+            None 表示通過；否則回傳不符合原因的說明字串
+        """
+        ...
+
+
+# ──────────────────────────────────────────────
+# Errors
+# ──────────────────────────────────────────────
 class OAuthError(Exception):
     """OAuth2 流程中發生的錯誤基底類別"""
 

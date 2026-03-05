@@ -8,10 +8,14 @@ Login Interface Data Transfer Objects
 - O: 使用 dataclass 可被繼承擴展，不需修改原有欄位。
 """
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
 
+# ──────────────────────────────────────────────
+# OAuth2 DTOs
+# ──────────────────────────────────────────────
 @dataclass(frozen=True)
 class OAuthUserInfo:
     """
@@ -66,3 +70,33 @@ class OAuthAuthorizationUrl:
     """
     url: str
     state: str
+
+
+# ──────────────────────────────────────────────
+# Password Login DTOs
+# ──────────────────────────────────────────────
+@dataclass(frozen=True)
+class PasswordAuthResult:
+    """
+    密碼驗證結果。
+
+    authenticate() 成功後回傳此物件，包含足夠的資訊
+    讓上層查詢或建立使用者。
+
+    對應 model.dbml 的 user_identities 表：
+    - provider      = 'password'
+    - provider_key  = identifier（即 email）
+    - secret_hash   = 密碼的 bcrypt 雜湊值（已驗證通過）
+
+    Attributes:
+        provider:      固定為 'password'
+        provider_key:  使用者登入識別（email）
+        user_id:       已存在的使用者 UUID（驗證成功時才有值）
+        email:         使用者 Email
+        username:      使用者名稱
+    """
+    provider: str
+    provider_key: str
+    user_id: Optional[uuid.UUID] = None
+    email: Optional[str] = None
+    username: Optional[str] = None
