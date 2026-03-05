@@ -1,3 +1,6 @@
+import dotenv
+dotenv.load_dotenv()  # 統一在啟動時載入 .env 環境變數
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
