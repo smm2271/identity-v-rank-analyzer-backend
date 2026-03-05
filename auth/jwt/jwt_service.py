@@ -30,6 +30,7 @@ class TokenPayload:
     token_ver: int
     exp: datetime
     iat: datetime
+    token_type: str = "access"  # 'access' 或 'refresh'
 
 
 # ──────────────────────────────────────────────
@@ -55,7 +56,8 @@ class TokenRevokedError(TokenError):
 # JWT Service
 # ──────────────────────────────────────────────
 _ALGORITHM = "RS256"
-_DEFAULT_EXPIRE_MINUTES = 30
+_DEFAULT_ACCESS_EXPIRE_MINUTES = 15
+_DEFAULT_REFRESH_EXPIRE_DAYS = 7
 
 
 class JWTService:
@@ -64,12 +66,19 @@ class JWTService:
 
     依賴 KeyManager 提供金鑰（D: 依賴反轉），
     本身只負責 token 的編碼/解碼邏輯（S: 單一職責）。
+
+    雙 Token 機制：
+    - Access Token  (短期): 預設 15 分鐘，用於 API 請求驗證
+    - Refresh Token (長期): 預設 7 天，用於換發新的 Access Token
     """
 
     def __init__(self, key_manager: KeyManager) -> None:
         self._key_manager = key_manager
-        self._expire_minutes = int(
-            os.getenv("JWT_EXPIRE_MINUTES", _DEFAULT_EXPIRE_MINUTES)
+        self._access_expire_minutes = int(
+            os.getenv("JWT_ACCESS_EXPIRE_MINUTES", _DEFAULT_ACCESS_EXPIRE_MINUTES)
+        )
+        self._refresh_expire_days = int(
+            os.getenv("JWT_REFRESH_EXPIRE_DAYS", _DEFAULT_REFRESH_EXPIRE_DAYS)
         )
 
     def create_access_token(
@@ -93,8 +102,9 @@ class JWTService:
         sub_data = json.dumps({"uuid": str(user_uuid), "token_ver": token_ver})
         payload: Dict[str, Any] = {
             "sub": sub_data,
+            "type": "access",
             "iat": now,
-            "exp": now + timedelta(minutes=self._expire_minutes),
+            "exp": now + timedelta(minutes=self._access_expire_minutes),
         }
 
         if extra_claims:
@@ -105,6 +115,55 @@ class JWTService:
             self._key_manager.private_key,
             algorithm=_ALGORITHM,
         )
+
+    def create_refresh_token(
+        self,
+        user_uuid: uuid.UUID,
+        token_ver: int,
+    ) -> str:
+        """
+        簽發 JWT Refresh Token（長期）。
+
+        用於在 Access Token 過期後換發新的 Access Token，
+        不需要使用者重新登入。
+
+        Payload 中以 "type": "refresh" 區分，防止 refresh token
+        被誤用為 access token。
+        """
+        now = datetime.now(timezone.utc)
+        sub_data = json.dumps({"uuid": str(user_uuid), "token_ver": token_ver})
+        payload: Dict[str, Any] = {
+            "sub": sub_data,
+            "type": "refresh",
+            "iat": now,
+            "exp": now + timedelta(days=self._refresh_expire_days),
+        }
+
+        return jwt.encode(
+            payload,
+            self._key_manager.private_key,
+            algorithm=_ALGORITHM,
+        )
+
+    def create_token_pair(
+        self,
+        user_uuid: uuid.UUID,
+        token_ver: int,
+        *,
+        extra_claims: Dict[str, Any] | None = None,
+    ) -> Dict[str, str]:
+        """
+        一次簽發 Access + Refresh Token 組合。
+
+        Returns:
+            {"access_token": "...", "refresh_token": "..."}
+        """
+        return {
+            "access_token": self.create_access_token(
+                user_uuid, token_ver, extra_claims=extra_claims
+            ),
+            "refresh_token": self.create_refresh_token(user_uuid, token_ver),
+        }
 
     def verify_token(self, token: str) -> TokenPayload:
         """
@@ -135,6 +194,7 @@ class JWTService:
             token_ver=sub["token_ver"],
             exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
             iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
+            token_type=payload.get("type", "access"),
         )
 
     async def verify_and_check_revocation(
