@@ -354,7 +354,7 @@ class GameMatchService(BaseRepository[GameMatch]):
         self,
         *,
         room_guuid: uuid.UUID,
-        creator_id: uuid.UUID,
+        uploader_id: uuid.UUID,
         scene_id: Optional[int] = None,
         match_type: Optional[int] = None,
         rank_level: Optional[int] = None,
@@ -374,7 +374,7 @@ class GameMatchService(BaseRepository[GameMatch]):
         async with self._session_factory() as session:
             match = GameMatch(
                 room_guuid=room_guuid,
-                creator_id=creator_id,
+                uploader_id=uploader_id,
                 scene_id=scene_id,
                 match_type=match_type,
                 rank_level=rank_level,
@@ -396,13 +396,13 @@ class GameMatchService(BaseRepository[GameMatch]):
             return match
 
     async def get_by_room_guuid(
-        self, room_guuid: uuid.UUID, creator_id: uuid.UUID
+        self, room_guuid: uuid.UUID, uploader_id: uuid.UUID
     ) -> Optional[GameMatch]:
-        """根據房間 UUID 與建立者查詢對戰"""
+        """根據房間 UUID 與上傳者查詢對戰"""
         async with self._session_factory() as session:
             stmt = select(GameMatch).where(
                 GameMatch.room_guuid == room_guuid,
-                GameMatch.creator_id == creator_id,
+                GameMatch.uploader_id == uploader_id,
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
@@ -418,18 +418,18 @@ class GameMatchService(BaseRepository[GameMatch]):
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
-    async def get_matches_by_creator(
+    async def get_matches_by_uploader(
         self,
-        creator_id: uuid.UUID,
+        uploader_id: uuid.UUID,
         *,
         offset: int = 0,
         limit: int = 50,
     ) -> Sequence[GameMatch]:
-        """取得某使用者建立的所有對戰紀錄（分頁）"""
+        """取得某使用者上傳的所有對戰紀錄（分頁）"""
         async with self._session_factory() as session:
             stmt = (
                 select(GameMatch)
-                .where(GameMatch.creator_id == creator_id)
+                .where(GameMatch.uploader_id == uploader_id)
                 .order_by(GameMatch.created_at.desc())
                 .offset(offset)
                 .limit(limit)
@@ -437,13 +437,13 @@ class GameMatchService(BaseRepository[GameMatch]):
             result = await session.execute(stmt)
             return result.scalars().all()
 
-    async def count_by_creator(self, creator_id: uuid.UUID) -> int:
+    async def count_by_uploader(self, uploader_id: uuid.UUID) -> int:
         """取得某使用者的對戰總數"""
         async with self._session_factory() as session:
             stmt = (
                 select(func.count())
                 .select_from(GameMatch)
-                .where(GameMatch.creator_id == creator_id)
+                .where(GameMatch.uploader_id == uploader_id)
             )
             result = await session.execute(stmt)
             return result.scalar_one()

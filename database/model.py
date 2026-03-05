@@ -34,7 +34,7 @@ class User(Base):
     # Relationships
     identities: Mapped[List["UserIdentity"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     api_keys: Mapped[List["ApiKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    matches: Mapped[List["GameMatch"]] = relationship(back_populates="creator")
+    matches: Mapped[List["GameMatch"]] = relationship(back_populates="uploader")
     login_logs: Mapped[List["UserLoginLog"]] = relationship(back_populates="user")
 
 
@@ -73,7 +73,7 @@ class GameMatch(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     room_guuid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    uploader_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     scene_id: Mapped[Optional[int]] = mapped_column(Integer)
     match_type: Mapped[Optional[int]] = mapped_column(Integer)
     rank_level: Mapped[Optional[int]] = mapped_column(Integer)
@@ -84,11 +84,11 @@ class GameMatch(Base):
     cipher_progress: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    creator: Mapped["User"] = relationship(back_populates="matches")
+    uploader: Mapped["User"] = relationship(back_populates="matches")
     player_infos: Mapped[List["PlayerInfo"]] = relationship(back_populates="match", cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint("room_guuid", "creator_id", name="uq_game_matches_room_creator"),
+        UniqueConstraint("room_guuid", "uploader_id", name="uq_game_matches_room_uploader"),
     )
 
 
@@ -107,7 +107,6 @@ class PlayerInfo(Base):
 
     __table_args__ = (
         Index("ix_player_info_match_id", "match_id"),
-        Index("ix_player_info_created_at", "created_at"),
     )
 
 

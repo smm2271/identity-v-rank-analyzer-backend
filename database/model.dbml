@@ -5,7 +5,7 @@ Table User {
   email varchar(255) [unique]
   created_at timestamp [default: `now()`]
   token_ver int [not null]
-  
+
   agreed_to_terms_at timestamp [not null]
 }
 
@@ -16,7 +16,7 @@ Table user_identities {
   provider varchar(20) [note: '例如: password, google, discord']
   provider_key varchar(255)
   secret_hash varchar(255)
-  
+
   Indexes {
     (provider, provider_key) [unique]
   }
@@ -37,7 +37,7 @@ Table api_keys {
 Table game_matches {
   id uuid [pk, default: `gen_random_uuid()`]
   room_guuid uuid [not null]
-  creator_id uuid [ref: > User.id]
+  uploader_id uuid [ref: > User.id]
   scene_id int [note: '地圖 ID']
   match_type int [note: '1:排位, 2:匹配, 3:五人制']
   rank_level int [note: '當時的段位，如 5 代表五階']
@@ -49,7 +49,7 @@ Table game_matches {
   created_at timestamp [default: `now()`]
 
   Indexes {
-    (room_guuid, creator_id) [unique]
+    (room_guuid, uploader_id) [unique]
   }
 }
 
@@ -65,15 +65,13 @@ Table player_info {
 
   Indexes {
     (match_id)
-    (created_at)
-  
   }
 }
 
 // 6. 登入日誌表 (獨立出來以支持大數據分析與資安防禦)
 Table user_login_logs {
   id uuid [pk, default: `gen_random_uuid()`]
-  user_id uuid [ref: > User.id, note: '若為登入失敗且帳號不存在，此處可為 null']
+  user_id uuid [ref: > User.id, null, note: '若為登入失敗且帳號不存在，此處可為 null']
   identifier varchar(255) [note: '使用者嘗試登入的 Email 或 Username']
   status varchar(20) [note: 'success, failed, locked']
   failure_reason varchar(50) [note: 'invalid_password, user_not_found, account_locked']
