@@ -17,7 +17,7 @@ from typing import Any, Dict
 
 import jwt
 
-from auth.jwt.key_manager import KeyManager
+from auth.jwt_auth.key_manager import KeyManager
 
 
 # ──────────────────────────────────────────────

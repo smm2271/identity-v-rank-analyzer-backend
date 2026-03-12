@@ -35,8 +35,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from auth.jwt.key_manager import KeyManager
-from auth.jwt.jwt_service import JWTService
+from auth.jwt_auth.key_manager import KeyManager
+from auth.jwt_auth.jwt_service import JWTService
 from auth.login_interface import (
     LoginProviderFactory,
     GoogleOAuthProvider,

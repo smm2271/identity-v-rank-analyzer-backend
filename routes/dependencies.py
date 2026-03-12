@@ -33,7 +33,7 @@ import uuid
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
-from auth.jwt.jwt_service import (
+from auth.jwt_auth.jwt_service import (
     JWTService,
     TokenError,
     TokenExpiredError,
