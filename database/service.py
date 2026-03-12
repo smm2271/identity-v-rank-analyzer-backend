@@ -372,6 +372,10 @@ class GameMatchService(BaseRepository[GameMatch]):
         確保資料一致性（不會出現有對戰但沒有任何玩家的狀況）。
         """
         async with self._session_factory() as session:
+            # Ensure naive UTC if timezone is present to match naive DB column
+            if game_save_time and game_save_time.tzinfo:
+                game_save_time = game_save_time.replace(tzinfo=None)
+
             match = GameMatch(
                 room_guuid=room_guuid,
                 uploader_id=uploader_id,

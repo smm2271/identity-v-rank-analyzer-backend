@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from auth.jwt.jwt_service import (
+from auth.jwt_auth.jwt_service import (
     JWTService,
     TokenError,
     TokenExpiredError,
@@ -291,7 +291,7 @@ async def oauth_callback(
             provider=user_info.provider,
             provider_key=user_info.provider_key,
             secret_hash=secret_hash,
-            agreed_to_terms_at=datetime.now(timezone.utc),
+            agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
     else:
         # Step 4b: 既有使用者
@@ -391,7 +391,7 @@ async def register(
         provider="password",
         provider_key=body.email,
         secret_hash=hashed_password,
-        agreed_to_terms_at=datetime.now(timezone.utc),
+        agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
     # Step 5: 簽發 JWT
