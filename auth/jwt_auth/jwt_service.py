@@ -84,6 +84,7 @@ class JWTService:
     def create_access_token(
         self,
         user_uuid: uuid.UUID,
+        user_name: str,
         token_ver: int,
         *,
         extra_claims: Dict[str, Any] | None = None,
@@ -93,13 +94,13 @@ class JWTService:
 
         Payload 格式：
         {
-            "sub": { "uuid": "xxxx-xxxx", "token_ver": 3 },
+            "sub": { "uuid": "xxxx-xxxx", "token_ver": 3, "user_name": "John Doe" },
             "iat": 1234567890,
             "exp": 1234567890
         }
         """
         now = datetime.now(timezone.utc)
-        sub_data = json.dumps({"uuid": str(user_uuid), "token_ver": token_ver})
+        sub_data = json.dumps({"uuid": str(user_uuid), "token_ver": token_ver, "user_name": user_name})
         payload: Dict[str, Any] = {
             "sub": sub_data,
             "type": "access",
