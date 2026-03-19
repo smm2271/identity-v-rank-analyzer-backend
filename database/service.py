@@ -633,34 +633,21 @@ class CharacterLadderScoreService(BaseRepository[CharacterLadderScore]):
             score=score,
         )
 
-    async def get_latest_scores_by_user(
-        self, user_id: uuid.UUID
-    ) -> Dict[int, CharacterLadderScore]:
-        """
-        取得使用者各角色最新的認知分紀錄。
-
-        返回格式：{pid: CharacterLadderScore, ...}
-        """
+    async def get_latest_scores_by_user(self, user_id: uuid.UUID):
         async with self._session_factory() as session:
-            # 對每個 pid，取得最新的紀錄
             stmt = (
                 select(CharacterLadderScore)
                 .where(CharacterLadderScore.user_id == user_id)
+                .distinct(CharacterLadderScore.pid)
                 .order_by(
                     CharacterLadderScore.pid,
                     CharacterLadderScore.recorded_at.desc(),
                 )
             )
             result = await session.execute(stmt)
-            all_scores = result.scalars().all()
+            scores = result.scalars().all()
 
-            # 按照 pid 分組，取得每個 pid 的最新紀錄
-            latest_by_pid: Dict[int, CharacterLadderScore] = {}
-            for score_record in all_scores:
-                if score_record.pid not in latest_by_pid:
-                    latest_by_pid[score_record.pid] = score_record
-
-            return latest_by_pid
+        return {s.pid: s for s in scores}
 
     async def get_ladder_score_history(
         self,
@@ -686,4 +673,3 @@ class CharacterLadderScoreService(BaseRepository[CharacterLadderScore]):
             )
             result = await session.execute(stmt)
             return result.scalars().all()
-
