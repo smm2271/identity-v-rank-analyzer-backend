@@ -38,6 +38,7 @@ from database.model import (
     GameMatch,
     PlayerInfo,
     UserLoginLog,
+    CharacterLadderScore,
 )
 
 # ──────────────────────────────────────────────
@@ -607,3 +608,82 @@ class UserLoginLogService(BaseRepository[UserLoginLog]):
             ip_address=ip_address,
             user_agent=user_agent,
         )
+
+
+# ──────────────────────────────────────────────
+# CharacterLadderScore Service
+# ──────────────────────────────────────────────
+class CharacterLadderScoreService(BaseRepository[CharacterLadderScore]):
+    """認知分紀錄的資料庫操作"""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        super().__init__(CharacterLadderScore, session_factory)
+
+    async def create_ladder_score(
+        self,
+        *,
+        user_id: uuid.UUID,
+        pid: int,
+        score: int,
+    ) -> CharacterLadderScore:
+        """建立認知分紀錄"""
+        return await self.create(
+            user_id=user_id,
+            pid=pid,
+            score=score,
+        )
+
+    async def get_latest_scores_by_user(
+        self, user_id: uuid.UUID
+    ) -> Dict[int, CharacterLadderScore]:
+        """
+        取得使用者各角色最新的認知分紀錄。
+
+        返回格式：{pid: CharacterLadderScore, ...}
+        """
+        async with self._session_factory() as session:
+            # 對每個 pid，取得最新的紀錄
+            stmt = (
+                select(CharacterLadderScore)
+                .where(CharacterLadderScore.user_id == user_id)
+                .order_by(
+                    CharacterLadderScore.pid,
+                    CharacterLadderScore.recorded_at.desc(),
+                )
+            )
+            result = await session.execute(stmt)
+            all_scores = result.scalars().all()
+
+            # 按照 pid 分組，取得每個 pid 的最新紀錄
+            latest_by_pid: Dict[int, CharacterLadderScore] = {}
+            for score_record in all_scores:
+                if score_record.pid not in latest_by_pid:
+                    latest_by_pid[score_record.pid] = score_record
+
+            return latest_by_pid
+
+    async def get_ladder_score_history(
+        self,
+        user_id: uuid.UUID,
+        pid: int,
+        *,
+        limit: int = 100,
+    ) -> Sequence[CharacterLadderScore]:
+        """
+        取得使用者某角色的認知分歷史。
+
+        返回從最新到最舊的紀錄列表。
+        """
+        async with self._session_factory() as session:
+            stmt = (
+                select(CharacterLadderScore)
+                .where(
+                    CharacterLadderScore.user_id == user_id,
+                    CharacterLadderScore.pid == pid,
+                )
+                .order_by(CharacterLadderScore.recorded_at.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return result.scalars().all()
+

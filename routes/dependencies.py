@@ -47,6 +47,7 @@ from database.service import (
     UserIdentityService,
     UserLoginLogService,
     UserService,
+    CharacterLadderScoreService,
 )
 
 
@@ -64,6 +65,7 @@ _jwt_service: JWTService | None = None
 _login_factory: LoginProviderFactory | None = None
 _api_key_service: ApiKeyService | None = None
 _match_service: GameMatchService | None = None
+_ladder_score_service: CharacterLadderScoreService | None = None
 
 
 def init_dependencies(
@@ -75,6 +77,7 @@ def init_dependencies(
     login_factory: LoginProviderFactory,
     api_key_service: ApiKeyService,
     match_service: GameMatchService,
+    ladder_score_service: CharacterLadderScoreService,
 ) -> None:
     """
     由 app.py 啟動時呼叫一次，注入所有 Service 實例。
@@ -84,6 +87,7 @@ def init_dependencies(
     """
     global _user_service, _identity_service, _login_log_service
     global _jwt_service, _login_factory, _api_key_service, _match_service
+    global _ladder_score_service
     _user_service = user_service
     _identity_service = identity_service
     _login_log_service = login_log_service
@@ -91,6 +95,7 @@ def init_dependencies(
     _login_factory = login_factory
     _api_key_service = api_key_service
     _match_service = match_service
+    _ladder_score_service = ladder_score_service
 
 
 # ──────────────────────────────────────────────
@@ -133,6 +138,11 @@ def get_api_key_service() -> ApiKeyService:
 def get_match_service() -> GameMatchService:
     assert _match_service is not None, "GameMatchService 尚未初始化"
     return _match_service
+
+
+def get_ladder_score_service() -> CharacterLadderScoreService:
+    assert _ladder_score_service is not None, "CharacterLadderScoreService 尚未初始化"
+    return _ladder_score_service
 
 
 # ══════════════════════════════════════════════════

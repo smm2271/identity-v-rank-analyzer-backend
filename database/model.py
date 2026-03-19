@@ -36,6 +36,7 @@ class User(Base):
     api_keys: Mapped[List["ApiKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     matches: Mapped[List["GameMatch"]] = relationship(back_populates="uploader")
     login_logs: Mapped[List["UserLoginLog"]] = relationship(back_populates="user")
+    ladder_scores: Mapped[List["CharacterLadderScore"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class UserIdentity(Base):
@@ -127,4 +128,20 @@ class UserLoginLog(Base):
     __table_args__ = (
         Index("ix_login_logs_user_id", "user_id"),
         Index("ix_login_logs_ip_address", "ip_address"),
+    )
+
+
+class CharacterLadderScore(Base):
+    __tablename__ = "character_ladder_scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    pid: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="ladder_scores")
+
+    __table_args__ = (
+        Index("ix_ladder_scores_user_pid_recorded", "user_id", "pid", "recorded_at"),
     )

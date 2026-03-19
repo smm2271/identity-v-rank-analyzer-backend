@@ -50,6 +50,7 @@ from database.service import (
     UserService,
     UserIdentityService,
     UserLoginLogService,
+    CharacterLadderScoreService,
 )
 from routes.dependencies import init_dependencies
 from routes.auth_routes import auth_router
@@ -71,6 +72,7 @@ identity_service = UserIdentityService(AsyncSessionLocal)
 login_log_service = UserLoginLogService(AsyncSessionLocal)
 api_key_service = ApiKeyService(AsyncSessionLocal)
 match_service = GameMatchService(AsyncSessionLocal)
+ladder_score_service = CharacterLadderScoreService(AsyncSessionLocal)
 
 key_manager = KeyManager()
 jwt_service = JWTService(key_manager)
@@ -98,6 +100,7 @@ init_dependencies(
     login_factory=login_factory,
     api_key_service=api_key_service,
     match_service=match_service,
+    ladder_score_service=ladder_score_service,
 )
 
 # ── 路由註冊 ──────────────────────────────────

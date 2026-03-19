@@ -33,8 +33,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from database.service import GameMatchService
-from routes.dependencies import get_match_service, verify_api_key
+from database.service import GameMatchService, CharacterLadderScoreService
+from routes.dependencies import get_match_service, get_ladder_score_service, verify_api_key
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
@@ -54,6 +54,13 @@ class PlayerInfoCreate(BaseModel):
     res_type: Optional[int] = Field(None, description="逃脫狀態")
 
 
+class LadderScoreInfo(BaseModel):
+    """認知分資訊（場次相關的認知分變化）"""
+
+    pid: int = Field(..., description="角色 ID")
+    score: int = Field(..., description="當前認知分")
+
+
 class MatchUploadRequest(BaseModel):
     """對戰紀錄上傳請求"""
 
@@ -67,6 +74,7 @@ class MatchUploadRequest(BaseModel):
     game_save_time: Optional[datetime] = Field(None, description="遊戲結束時間")
     cipher_progress: Optional[Dict[str, Any]] = Field(None, description="各台密碼機修機進度")
     players: Optional[List[PlayerInfoCreate]] = Field(None, description="對局玩家資料")
+    ladder_score_info: List[LadderScoreInfo] = Field(..., description="本場對局涉及的認知分更新（必填）")
 
 
 class PlayerInfoResponse(BaseModel):
@@ -123,6 +131,31 @@ class MatchListResponse(BaseModel):
     items: List[MatchResponse]
 
 
+class CharacterLadderScoreResponse(BaseModel):
+    """認知分紀錄回應"""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    pid: int
+    score: int
+    recorded_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class LadderScoresListResponse(BaseModel):
+    """認知分列表回應"""
+
+    pid: int
+    scores: List[CharacterLadderScoreResponse]
+
+
+class LatestLadderScoresResponse(BaseModel):
+    """最新認知分回應"""
+
+    latest_scores: Dict[int, CharacterLadderScoreResponse]
+
+
 # ──────────────────────────────────────────────
 # Routes
 # (S) 單一職責：路由函式僅負責 HTTP 層面的請求解析、回應組裝與錯誤處理，
@@ -136,12 +169,13 @@ class MatchListResponse(BaseModel):
     response_model=MatchResponse,
     status_code=status.HTTP_201_CREATED,
     summary="上傳對戰紀錄",
-    description="上傳一筆遊戲對戰紀錄，可同時包含所有玩家資訊。需透過 X-API-Key 驗證。",
+    description="上傳一筆遊戲對戰紀錄，需包含認知分更新資訊。需透過 X-API-Key 驗證。",
 )
 async def upload_match(
     body: MatchUploadRequest,
     user_id: uuid.UUID = Depends(verify_api_key),
     match_svc: GameMatchService = Depends(get_match_service),
+    ladder_svc: CharacterLadderScoreService = Depends(get_ladder_score_service),
 ):
     # 檢查是否已上傳過（room_guuid + uploader_id 唯一）
     existing = await match_svc.get_by_room_guuid(body.room_guuid, user_id)
@@ -168,6 +202,16 @@ async def upload_match(
         cipher_progress=body.cipher_progress,
         players=players_data,
     )
+
+    # 保存認知分資訊
+    if body.ladder_score_info:
+        for ladder_info in body.ladder_score_info:
+            await ladder_svc.create_ladder_score(
+                user_id=user_id,
+                pid=ladder_info.pid,
+                score=ladder_info.score,
+            )
+
     return match
 
 
@@ -223,4 +267,56 @@ async def get_match_detail(
     return MatchDetailResponse(
         **MatchResponse.model_validate(match).model_dump(),
         players=[PlayerInfoResponse.model_validate(p) for p in match.player_infos],
+    )
+
+
+@router.get(
+    "/ladder-scores/latest",
+    response_model=LatestLadderScoresResponse,
+    summary="取得最新認知分",
+    description="取得當前使用者各角色最新的認知分紀錄。需透過 X-API-Key 驗證。",
+)
+async def get_latest_ladder_scores(
+    user_id: uuid.UUID = Depends(verify_api_key),
+    ladder_svc: CharacterLadderScoreService = Depends(get_ladder_score_service),
+):
+    """
+    獲取使用者所有角色最新的認知分。
+    返回格式: {pid: {id, user_id, pid, score, recorded_at}, ...}
+    """
+    latest_scores = await ladder_svc.get_latest_scores_by_user(user_id)
+
+    # 轉換為回應格式
+    result = {}
+    for pid, score_record in latest_scores.items():
+        result[pid] = CharacterLadderScoreResponse.model_validate(score_record)
+
+    return LatestLadderScoresResponse(latest_scores=result)
+
+
+@router.get(
+    "/ladder-scores/{pid}",
+    response_model=LadderScoresListResponse,
+    summary="取得認知分歷史",
+    description="取得當前使用者指定角色的認知分變化歷史（最新優先）。需透過 X-API-Key 驗證。",
+)
+async def get_ladder_score_history(
+    pid: int = Field(..., description="角色 ID"),
+    limit: int = 100,
+    user_id: uuid.UUID = Depends(verify_api_key),
+    ladder_svc: CharacterLadderScoreService = Depends(get_ladder_score_service),
+):
+    """
+    獲取使用者某個角色的認知分完整歷史。
+    返回最多 limit 筆紀錄，按時間倒序（最新優先）。
+    """
+    scores = await ladder_svc.get_ladder_score_history(
+        user_id=user_id,
+        pid=pid,
+        limit=limit,
+    )
+
+    return LadderScoresListResponse(
+        pid=pid,
+        scores=[CharacterLadderScoreResponse.model_validate(s) for s in scores],
     )
