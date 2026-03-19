@@ -130,6 +130,8 @@ class JWTService:
 
         Payload 中以 "type": "refresh" 區分，防止 refresh token
         被誤用為 access token。
+        
+        refresh_token 不需要 user_name 等額外資訊，因為本系統JWT的優勢在前端。
         """
         now = datetime.now(timezone.utc)
         sub_data = json.dumps({"uuid": str(user_uuid), "token_ver": token_ver})
