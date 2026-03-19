@@ -32,8 +32,9 @@ import dotenv
 dotenv.load_dotenv()  # 統一在啟動時載入 .env 環境變數
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+# 移除 Middleware 的 import
+# 因為 nginx 反向代理不會有 CORS
 
 from auth.jwt_auth.key_manager import KeyManager
 from auth.jwt_auth.jwt_service import JWTService
