@@ -38,3 +38,61 @@ Python CLI → FastAPI Backend → Database → React Dashboard
 - **Uvicorn**
 
 ---
+
+## 環境需求 Requirements
+
+- Python 3.10 以上
+- PostgreSQL 14 以上
+- Linux Server（正式部署建議）
+
+---
+
+## 安裝套件
+
+```bash
+conda create -n idv_analyzer_backend python=3.11
+conda activate idv_analyzer_backend
+pip install -r requirements.txt
+```
+
+---
+
+## 環境變數設定
+
+1. 複製範例檔：
+
+```bash
+cp .env.example .env
+```
+
+2. 依需求修改 `.env`：
+
+- 資料庫（`DATABASE_URL` 或 `db_user/db_password/db_host/db_port/db_name`）
+- JWT 過期時間（`JWT_ACCESS_EXPIRE_MINUTES`, `JWT_REFRESH_EXPIRE_DAYS`）
+- OAuth（`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`）
+- 建議額外設定：`OAUTH_STATE_SECRET`（防 CSRF state 驗證，未設定會使用啟動時隨機值）
+
+---
+
+## 初始化資料庫
+
+建立資料表（首次部署或 schema 變更後執行）：
+
+```bash
+python database/database.py
+```
+
+---
+
+## 本機啟動
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 9999 --reload
+```
+
+啟動後可透過以下網址確認：
+
+- API Root: `http://127.0.0.1:9999/`
+- Swagger: `http://127.0.0.1:9999/docs`
+
+---
