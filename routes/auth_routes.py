@@ -303,7 +303,7 @@ async def oauth_callback(
             )
 
     # Step 5: 簽發 JWT
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver)
+    token_pair = jwt_svc.create_token_pair(user_uuid=user.id, token_version=user.token_ver, user_name=user.username)
 
     await log_svc.log_login(
         user_id=user.id,

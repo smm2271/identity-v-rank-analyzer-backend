@@ -152,6 +152,7 @@ class JWTService:
         self,
         user_uuid: uuid.UUID,
         token_ver: int,
+        user_name: str,
         *,
         extra_claims: Dict[str, Any] | None = None,
     ) -> Dict[str, str]:
@@ -163,9 +164,9 @@ class JWTService:
         """
         return {
             "access_token": self.create_access_token(
-                user_uuid, token_ver, extra_claims=extra_claims
+                user_uuid=user_uuid, token_ver=token_ver, user_name=user_name, extra_claims=extra_claims
             ),
-            "refresh_token": self.create_refresh_token(user_uuid, token_ver),
+            "refresh_token": self.create_refresh_token(user_uuid=user_uuid, token_ver=token_ver),
         }
 
     def verify_token(self, token: str) -> TokenPayload:
