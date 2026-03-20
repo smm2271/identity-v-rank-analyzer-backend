@@ -303,7 +303,7 @@ async def oauth_callback(
             )
 
     # Step 5: 簽發 JWT
-    token_pair = jwt_svc.create_token_pair(user_uuid=user.id, token_version=user.token_ver, user_name=user.username)
+    token_pair = jwt_svc.create_token_pair(user_uuid=user.id, token_ver=user.token_ver, user_name=user.username or "")
 
     await log_svc.log_login(
         user_id=user.id,
@@ -395,7 +395,7 @@ async def register(
     )
 
     # Step 5: 簽發 JWT
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver)
+    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
 
     await log_svc.log_login(
         user_id=user.id,
@@ -482,7 +482,7 @@ async def login(
             detail="使用者資料異常",
         )
 
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver)
+    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
 
     await log_svc.log_login(
         user_id=user.id,
@@ -551,7 +551,7 @@ async def refresh_token(
             detail="使用者不存在",
         )
 
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver)
+    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
 
     return TokenResponse(
         access_token=token_pair["access_token"],
