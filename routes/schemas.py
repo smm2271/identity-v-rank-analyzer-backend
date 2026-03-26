@@ -44,7 +44,7 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     """密碼登入請求"""
-    email: EmailStr
+    identifier: str = Field(..., min_length=1, description="電子郵件或使用者名稱")
     password: str
 
 

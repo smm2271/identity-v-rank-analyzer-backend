@@ -26,7 +26,7 @@ from typing import (
     runtime_checkable,
 )
 
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -200,6 +200,18 @@ class UserService(BaseRepository[User]):
         """根據 Email 查詢"""
         async with self._session_factory() as session:
             stmt = select(User).where(User.email == email)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def get_by_identifier(self, identifier: str) -> Optional[User]:
+        """以 Email 或 Username 查詢使用者"""
+        async with self._session_factory() as session:
+            stmt = select(User).where(
+                or_(
+                    User.email == identifier,
+                    User.username == identifier,
+                )
+            )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 

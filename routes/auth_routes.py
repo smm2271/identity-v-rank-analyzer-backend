@@ -439,7 +439,7 @@ async def login(
     log_svc: UserLoginLogService = Depends(get_login_log_service),
 ):
     """
-    以 Email + 密碼登入。
+    以「Email 或 Username」+ 密碼登入。
 
     (S) 單一職責：本函式只負責 HTTP 層的流程協調，
         帳密驗證完全委派給 PasswordLoginProvider.authenticate()。
@@ -460,13 +460,22 @@ async def login(
     user_agent = request.headers.get("User-Agent")
 
     try:
+        # password identity 目前以 email 作為 provider_key。
+        # 先用 OR(email/username) 查 user，再以其 email 進行密碼身份驗證。
+        user_by_identifier = await user_svc.get_by_identifier(body.identifier)
+        resolved_identifier = (
+            user_by_identifier.email
+            if user_by_identifier and user_by_identifier.email
+            else body.identifier
+        )
+
         result = await pwd_provider.authenticate(
-            identifier=body.email,
+            identifier=resolved_identifier,
             password=body.password,
         )
     except (InvalidCredentialsError, IdentityNotFoundError):
         await log_svc.log_login(
-            identifier=body.email,
+            identifier=body.identifier,
             status="failed",
             failure_reason="invalid_credentials",
             ip_address=ip_address,
@@ -478,7 +487,7 @@ async def login(
         )
     except PasswordAuthError as e:
         await log_svc.log_login(
-            identifier=body.email,
+            identifier=body.identifier,
             status="failed",
             failure_reason=e.message[:50],
             ip_address=ip_address,
@@ -500,7 +509,7 @@ async def login(
 
     await log_svc.log_login(
         user_id=user.id,
-        identifier=body.email,
+        identifier=body.identifier,
         status="success",
         ip_address=ip_address,
         user_agent=user_agent,
