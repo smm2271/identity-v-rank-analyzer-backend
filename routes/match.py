@@ -30,7 +30,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 
 from database.service import GameMatchService, CharacterLadderScoreService
@@ -301,8 +301,8 @@ async def get_latest_ladder_scores(
     description="取得當前使用者指定角色的認知分變化歷史（最新優先）。需透過 X-API-Key 驗證。",
 )
 async def get_ladder_score_history(
-    pid: int = Field(..., description="角色 ID"),
-    limit: int = 100,
+    pid: int = Path(..., description="角色 ID"),
+    limit: int = Query(100, ge=1, le=500, description="最多回傳筆數"),
     user_id: uuid.UUID = Depends(verify_api_key),
     ladder_svc: CharacterLadderScoreService = Depends(get_ladder_score_service),
 ):
