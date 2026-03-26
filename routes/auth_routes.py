@@ -278,21 +278,35 @@ async def oauth_callback(
     )
 
     if identity is None:
-        # Step 4a: 新使用者 — 建立 User + UserIdentity
+        # Step 4a: 尚未綁定此 provider_key
+        # 若 email 已存在，代表同一人曾以其他方式註冊，直接補綁身份來源。
         secret_hash = None
         if tokens.refresh_token:
             secret_hash = hashlib.sha256(
                 tokens.refresh_token.encode()
             ).hexdigest()
 
-        user = await user_svc.create_user(
-            email=user_info.email,
-            username=user_info.username,
-            provider=user_info.provider,
-            provider_key=user_info.provider_key,
-            secret_hash=secret_hash,
-            agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
-        )
+        existing_user = None
+        if user_info.email:
+            existing_user = await user_svc.get_by_email(user_info.email)
+
+        if existing_user is not None:
+            await identity_svc.create_identity(
+                user_id=existing_user.id,
+                provider=user_info.provider,
+                provider_key=user_info.provider_key,
+                secret_hash=secret_hash,
+            )
+            user = existing_user
+        else:
+            user = await user_svc.create_user(
+                email=user_info.email,
+                username=user_info.username,
+                provider=user_info.provider,
+                provider_key=user_info.provider_key,
+                secret_hash=secret_hash,
+                agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
     else:
         # Step 4b: 既有使用者
         user = await user_svc.get_by_id(identity.user_id)
