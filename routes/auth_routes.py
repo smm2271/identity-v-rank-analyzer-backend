@@ -427,6 +427,12 @@ async def register(
             detail=f"密碼強度不足: {weakness}",
         )
 
+    if body.terms_accepted is not True:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="請先同意服務條款及隱私政策",
+        )
+
     # Step 2: Email 唯一性檢查
     existing_user = await user_svc.get_by_email(body.email)
     if existing_user:

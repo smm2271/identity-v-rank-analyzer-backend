@@ -13,7 +13,7 @@ SOLID 原則：
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -47,6 +47,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, description="密碼，至少 8 字元")
     username: Optional[str] = Field(None, max_length=50, description="使用者名稱")
+    terms_accepted: Literal[True] = Field(..., description="必須同意服務條款與隱私政策")
 
 
 class LoginRequest(BaseModel):
