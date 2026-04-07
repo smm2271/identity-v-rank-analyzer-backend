@@ -30,7 +30,9 @@ SOLID 原則對應
 """
 
 import hashlib
+import base64
 import hmac
+import json
 import os
 import secrets
 import time
@@ -69,6 +71,8 @@ from routes.schemas import (
     AuthUserBasic,
     LoginRequest,
     MessageResponse,
+    OAuthFinalizeRequest,
+    OAuthLinkRequest,
     OAuthAuthorizeResponse,
     ProvidersResponse,
     RegisterRequest,
@@ -83,7 +87,9 @@ from routes.schemas import (
 # ──────────────────────────────────────────────
 
 _STATE_SECRET = os.getenv("OAUTH_STATE_SECRET", secrets.token_urlsafe(32))
+_OAUTH_FLOW_SECRET = os.getenv("OAUTH_FLOW_SECRET", secrets.token_urlsafe(32))
 _STATE_MAX_AGE_SECONDS = 600  # state 有效期 10 分鐘
+_OAUTH_FLOW_MAX_AGE_SECONDS = 1800
 _REFRESH_COOKIE_NAME = "refresh_token"
 
 
@@ -161,6 +167,76 @@ def _verify_signed_state(state: str) -> bool:
         return hmac.compare_digest(signature, expected)
     except Exception:
         return False
+
+
+def _sign_oauth_flow_payload(payload: dict[str, object]) -> str:
+    message = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    encoded_payload = base64.urlsafe_b64encode(message).decode("ascii").rstrip("=")
+    signature = hmac.new(
+        _OAUTH_FLOW_SECRET.encode(), encoded_payload.encode("ascii"), hashlib.sha256
+    ).hexdigest()
+    return f"{encoded_payload}.{signature}"
+
+
+def _verify_oauth_flow_token(token: str, expected_kind: str) -> dict[str, str] | None:
+    try:
+        payload_part, signature = token.rsplit(".", 1)
+    except ValueError:
+        return None
+
+    expected_signature = hmac.new(
+        _OAUTH_FLOW_SECRET.encode(), payload_part.encode("ascii"), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        return None
+
+    padding = "=" * (-len(payload_part) % 4)
+    try:
+        raw_payload = base64.urlsafe_b64decode((payload_part + padding).encode("ascii"))
+        payload = json.loads(raw_payload.decode("utf-8"))
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    kind = payload.get("kind")
+    expires_at = payload.get("exp")
+    if kind != expected_kind:
+        return None
+    try:
+        expires_at_int = int(expires_at)
+    except (TypeError, ValueError):
+        return None
+
+    if int(time.time()) > expires_at_int:
+        return None
+
+    return {key: str(value) for key, value in payload.items() if value is not None}
+
+
+def _build_oauth_flow_token(
+    *,
+    kind: str,
+    provider: str,
+    provider_key: str,
+    email: str,
+    username: str | None,
+    secret_hash: str | None,
+) -> str:
+    payload: dict[str, object] = {
+        "kind": kind,
+        "provider": provider,
+        "provider_key": provider_key,
+        "email": email,
+        "exp": int(time.time()) + _OAUTH_FLOW_MAX_AGE_SECONDS,
+    }
+    if username is not None:
+        payload["username"] = username
+    if secret_hash is not None:
+        payload["secret_hash"] = secret_hash
+
+    return _sign_oauth_flow_payload(payload)
 
 
 # ──────────────────────────────────────────────
@@ -337,23 +413,49 @@ async def oauth_callback(
         if user_info.email:
             existing_user = await user_svc.get_by_email(user_info.email)
 
+        if not user_info.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OAuth 供應商未提供 Email，無法完成後續流程",
+            )
+
         if existing_user is not None:
-            await identity_svc.create_identity(
-                user_id=existing_user.id,
+            link_token = _build_oauth_flow_token(
+                kind="link",
                 provider=user_info.provider,
                 provider_key=user_info.provider_key,
-                secret_hash=secret_hash,
-            )
-            user = existing_user
-        else:
-            user = await user_svc.create_user(
                 email=user_info.email,
                 username=user_info.username,
-                provider=user_info.provider,
-                provider_key=user_info.provider_key,
                 secret_hash=secret_hash,
-                agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "LINK_REQUIRED",
+                    "message": "此 Email 已被其他帳號使用，請先完成帳號關聯",
+                    "link_token": link_token,
+                    "provider": user_info.provider,
+                    "email": user_info.email,
+                },
+            )
+        registration_token = _build_oauth_flow_token(
+            kind="registration",
+            provider=user_info.provider,
+            provider_key=user_info.provider_key,
+            email=user_info.email,
+            username=user_info.username,
+            secret_hash=secret_hash,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "REGISTRATION_REQUIRED",
+                "message": "請先完成基本資料設定",
+                "registration_token": registration_token,
+                "provider": user_info.provider,
+                "email": user_info.email,
+            },
+        )
     else:
         # Step 4b: 既有使用者
         user = await user_svc.get_by_id(identity.user_id)
@@ -369,6 +471,167 @@ async def oauth_callback(
     await log_svc.log_login(
         user_id=user.id,
         identifier=f"{user_info.provider}:{user_info.provider_key}",
+        status="success",
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    _set_refresh_cookie(response, token_pair["refresh_token"])
+    return _build_token_response(user=user, access_token=token_pair["access_token"])
+
+
+@auth_router.post(
+    "/oauth-finalize",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="完成 OAuth 新用戶註冊",
+)
+async def oauth_finalize(
+    body: OAuthFinalizeRequest,
+    request: Request,
+    response: Response,
+    user_svc: UserService = Depends(get_user_service),
+    identity_svc: UserIdentityService = Depends(get_identity_service),
+    jwt_svc: JWTService = Depends(get_jwt_service),
+    log_svc: UserLoginLogService = Depends(get_login_log_service),
+):
+    pending = _verify_oauth_flow_token(body.registration_token, "registration")
+    if pending is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="註冊暫存資料已失效或無效，請重新登入",
+        )
+
+    if body.terms_accepted is not True:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="請先同意服務條款及隱私政策",
+        )
+
+    existing_user = await user_svc.get_by_email(pending["email"])
+    if existing_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="此 Email 已被註冊，請改用帳號關聯流程",
+        )
+
+    existing_identity = await identity_svc.get_by_provider(
+        pending["provider"],
+        pending["provider_key"],
+    )
+    if existing_identity is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="此 OAuth 身分已被使用，請重新登入",
+        )
+
+    user = await user_svc.create_user(
+        email=pending["email"],
+        username=body.username,
+        provider=pending["provider"],
+        provider_key=pending["provider_key"],
+        secret_hash=pending.get("secret_hash"),
+        agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+
+    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
+
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("User-Agent")
+    await log_svc.log_login(
+        user_id=user.id,
+        identifier=f"{pending['provider']}:{pending['provider_key']}",
+        status="success",
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    _set_refresh_cookie(response, token_pair["refresh_token"])
+    return _build_token_response(user=user, access_token=token_pair["access_token"])
+
+
+@auth_router.post(
+    "/link-identity",
+    response_model=TokenResponse,
+    summary="關聯 OAuth 身分",
+)
+async def link_identity(
+    body: OAuthLinkRequest,
+    request: Request,
+    response: Response,
+    factory: LoginProviderFactory = Depends(get_login_factory),
+    user_svc: UserService = Depends(get_user_service),
+    identity_svc: UserIdentityService = Depends(get_identity_service),
+    jwt_svc: JWTService = Depends(get_jwt_service),
+    log_svc: UserLoginLogService = Depends(get_login_log_service),
+):
+    pending = _verify_oauth_flow_token(body.link_token, "link")
+    if pending is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="關聯暫存資料已失效或無效，請重新登入",
+        )
+
+    try:
+        pwd_provider = factory.get_password()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="密碼登入功能未啟用",
+        )
+
+    user_by_identifier = await user_svc.get_by_identifier(body.identifier)
+    resolved_identifier = (
+        user_by_identifier.email
+        if user_by_identifier and user_by_identifier.email
+        else body.identifier
+    )
+
+    try:
+        result = await pwd_provider.authenticate(
+            identifier=resolved_identifier,
+            password=body.password,
+        )
+    except (InvalidCredentialsError, IdentityNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="帳號或密碼錯誤",
+        )
+    except PasswordAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"帳號或密碼錯誤: {e.message}",
+        )
+
+    identity = await identity_svc.get_by_provider(pending["provider"], pending["provider_key"])
+    if identity is not None and identity.user_id != result.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="此 OAuth 身分已被其他帳號綁定",
+        )
+
+    if identity is None:
+        await identity_svc.create_identity(
+            user_id=result.user_id,
+            provider=pending["provider"],
+            provider_key=pending["provider_key"],
+            secret_hash=pending.get("secret_hash"),
+        )
+
+    user = await user_svc.get_by_id(result.user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="使用者資料異常",
+        )
+
+    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
+
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("User-Agent")
+    await log_svc.log_login(
+        user_id=user.id,
+        identifier=f"{pending['provider']}:{pending['provider_key']}",
         status="success",
         ip_address=ip_address,
         user_agent=user_agent,

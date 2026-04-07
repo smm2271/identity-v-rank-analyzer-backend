@@ -50,6 +50,20 @@ class RegisterRequest(BaseModel):
     terms_accepted: Literal[True] = Field(..., description="必須同意服務條款與隱私政策")
 
 
+class OAuthFinalizeRequest(BaseModel):
+    """OAuth 新用戶完成註冊請求"""
+    registration_token: str = Field(..., min_length=1, description="OAuth 註冊暫存 token")
+    username: str = Field(..., min_length=1, max_length=50, description="使用者名稱")
+    terms_accepted: Literal[True] = Field(..., description="必須同意服務條款與隱私政策")
+
+
+class OAuthLinkRequest(BaseModel):
+    """OAuth 帳號關聯請求"""
+    link_token: str = Field(..., min_length=1, description="OAuth 關聯暫存 token")
+    identifier: str = Field(..., min_length=1, description="原帳號電子郵件或使用者名稱")
+    password: str = Field(..., min_length=1, description="原帳號密碼")
+
+
 class LoginRequest(BaseModel):
     """密碼登入請求"""
     identifier: str = Field(..., min_length=1, description="電子郵件或使用者名稱")
