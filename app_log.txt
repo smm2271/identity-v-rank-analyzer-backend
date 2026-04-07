@@ -1,0 +1,6 @@
+INFO:     Started server process [2202356]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:9999 (Press CTRL+C to quit)
+/tmp/tmpwgfzhg6_: line 17: 2202356 Killed                  python app.py
+ERROR conda.cli.main_run:execute(142): `conda run python app.py` failed. (See above for error)

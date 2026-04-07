@@ -28,10 +28,17 @@ class OAuthAuthorizeResponse(BaseModel):
     state: str
 
 
+class AuthUserBasic(BaseModel):
+    """登入後前端顯示用的最小使用者資訊"""
+    id: uuid.UUID
+    username: Optional[str]
+    email: Optional[str]
+
+
 class TokenResponse(BaseModel):
-    """JWT Token 回應"""
+    """登入成功回應（refresh token 由 HttpOnly Cookie 傳遞）"""
     access_token: str
-    refresh_token: str
+    user: AuthUserBasic
     token_type: str = "Bearer"
 
 

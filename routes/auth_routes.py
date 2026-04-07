@@ -36,7 +36,7 @@ import secrets
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from auth.jwt_auth.jwt_service import (
     JWTService,
@@ -66,11 +66,11 @@ from routes.dependencies import (
     get_user_service,
 )
 from routes.schemas import (
+    AuthUserBasic,
     LoginRequest,
     MessageResponse,
     OAuthAuthorizeResponse,
     ProvidersResponse,
-    RefreshRequest,
     RegisterRequest,
     TokenResponse,
 )
@@ -84,6 +84,52 @@ from routes.schemas import (
 
 _STATE_SECRET = os.getenv("OAUTH_STATE_SECRET", secrets.token_urlsafe(32))
 _STATE_MAX_AGE_SECONDS = 600  # state 有效期 10 分鐘
+_REFRESH_COOKIE_NAME = "refresh_token"
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    cleaned = raw.split("#", 1)[0].strip()
+    if not cleaned:
+        return default
+    return int(cleaned)
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    max_age = _env_int("JWT_REFRESH_EXPIRE_DAYS", 7) * 24 * 60 * 60
+    response.set_cookie(
+        key=_REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/auth/refresh",
+        max_age=max_age,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=_REFRESH_COOKIE_NAME,
+        path="/auth/refresh",
+    )
+
+
+def _build_token_response(
+    *,
+    user,
+    access_token: str,
+) -> TokenResponse:
+    return TokenResponse(
+        access_token=access_token,
+        user=AuthUserBasic(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+        ),
+    )
 
 
 def _generate_signed_state() -> str:
@@ -207,6 +253,7 @@ async def oauth_callback(
     state: str = Query(..., description="CSRF state 參數"),
     redirect_uri: str = Query(..., description="與 authorize 時使用的相同回呼 URL"),
     request: Request = None,  # type: ignore[assignment]
+    response: Response = None,  # type: ignore[assignment]
     factory: LoginProviderFactory = Depends(get_login_factory),
     user_svc: UserService = Depends(get_user_service),
     identity_svc: UserIdentityService = Depends(get_identity_service),
@@ -327,10 +374,8 @@ async def oauth_callback(
         user_agent=user_agent,
     )
 
-    return TokenResponse(
-        access_token=token_pair["access_token"],
-        refresh_token=token_pair["refresh_token"],
-    )
+    _set_refresh_cookie(response, token_pair["refresh_token"])
+    return _build_token_response(user=user, access_token=token_pair["access_token"])
 
 
 # ══════════════════════════════════════════════════
@@ -347,6 +392,7 @@ async def oauth_callback(
 async def register(
     body: RegisterRequest,
     request: Request,
+    response: Response,
     factory: LoginProviderFactory = Depends(get_login_factory),
     user_svc: UserService = Depends(get_user_service),
     identity_svc: UserIdentityService = Depends(get_identity_service),
@@ -419,10 +465,8 @@ async def register(
         user_agent=user_agent,
     )
 
-    return TokenResponse(
-        access_token=token_pair["access_token"],
-        refresh_token=token_pair["refresh_token"],
-    )
+    _set_refresh_cookie(response, token_pair["refresh_token"])
+    return _build_token_response(user=user, access_token=token_pair["access_token"])
 
 
 @auth_router.post(
@@ -433,6 +477,7 @@ async def register(
 async def login(
     body: LoginRequest,
     request: Request,
+    response: Response,
     factory: LoginProviderFactory = Depends(get_login_factory),
     user_svc: UserService = Depends(get_user_service),
     jwt_svc: JWTService = Depends(get_jwt_service),
@@ -515,10 +560,8 @@ async def login(
         user_agent=user_agent,
     )
 
-    return TokenResponse(
-        access_token=token_pair["access_token"],
-        refresh_token=token_pair["refresh_token"],
-    )
+    _set_refresh_cookie(response, token_pair["refresh_token"])
+    return _build_token_response(user=user, access_token=token_pair["access_token"])
 
 
 # ══════════════════════════════════════════════════
@@ -532,7 +575,8 @@ async def login(
     summary="以 Refresh Token 換發新 Token",
 )
 async def refresh_token(
-    body: RefreshRequest,
+    request: Request,
+    response: Response,
     jwt_svc: JWTService = Depends(get_jwt_service),
     user_svc: UserService = Depends(get_user_service),
 ):
@@ -541,9 +585,16 @@ async def refresh_token(
 
     (D) 依賴反轉：JWTService 與 UserService 透過 Depends() 注入。
     """
+    refresh_token_value = request.cookies.get(_REFRESH_COOKIE_NAME)
+    if not refresh_token_value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token 缺失，請重新登入",
+        )
+
     try:
         payload = await jwt_svc.verify_and_check_revocation(
-            body.refresh_token, user_svc
+            refresh_token_value, user_svc
         )
     except TokenExpiredError:
         raise HTTPException(
@@ -576,10 +627,8 @@ async def refresh_token(
 
     token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
 
-    return TokenResponse(
-        access_token=token_pair["access_token"],
-        refresh_token=token_pair["refresh_token"],
-    )
+    _set_refresh_cookie(response, token_pair["refresh_token"])
+    return _build_token_response(user=user, access_token=token_pair["access_token"])
 
 
 @auth_router.post(
@@ -588,6 +637,7 @@ async def refresh_token(
     summary="登出（撤銷所有 Token）",
 )
 async def logout(
+    response: Response,
     current_user=Depends(get_current_user),
     user_svc: UserService = Depends(get_user_service),
 ):
@@ -598,5 +648,6 @@ async def logout(
     (S) 單一職責：僅協調 UserService.increment_token_ver()，不含其他邏輯。
     """
     await user_svc.increment_token_ver(current_user.id)
+    _clear_refresh_cookie(response)
 
     return MessageResponse(message="已成功登出")
