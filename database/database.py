@@ -1,7 +1,12 @@
 import os
 from typing import AsyncGenerator
 import dotenv
-from database.model import Base  # 引入模型定義，確保 metadata 可用來建立表格
+try:
+    # 套件模式：python -m database.database
+    from database.model import Base  # 引入模型定義，確保 metadata 可用來建立表格
+except ModuleNotFoundError:
+    # 腳本模式：python database/database.py
+    from model import Base
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
