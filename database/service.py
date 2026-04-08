@@ -39,6 +39,7 @@ from database.model import (
     PlayerInfo,
     UserLoginLog,
     CharacterLadderScore,
+    RefreshToken,
 )
 
 # ──────────────────────────────────────────────
@@ -685,3 +686,60 @@ class CharacterLadderScoreService(BaseRepository[CharacterLadderScore]):
             )
             result = await session.execute(stmt)
             return result.scalars().all()
+
+
+# ──────────────────────────────────────────────
+# RefreshToken Service
+# ──────────────────────────────────────────────
+class RefreshTokenService(BaseRepository[RefreshToken]):
+    """Refresh Token Session 的資料庫操作"""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        super().__init__(RefreshToken, session_factory)
+
+    async def create_refresh_token(
+        self,
+        *,
+        user_id: uuid.UUID,
+        jti: str,
+        expires_at: datetime,
+    ) -> RefreshToken:
+        """建立一筆可用的 refresh token session。"""
+        async with self._session_factory() as session:
+            token = RefreshToken(
+                user_id=user_id,
+                jti=jti,
+                expires_at=expires_at,
+                is_active=True,
+            )
+            session.add(token)
+            await session.commit()
+            return token
+
+    async def get_active_by_jti(self, jti: str) -> Optional[RefreshToken]:
+        """查詢目前仍有效的 refresh token session。"""
+        async with self._session_factory() as session:
+            stmt = select(RefreshToken).where(
+                RefreshToken.jti == jti,
+                RefreshToken.is_active.is_(True),
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def revoke_by_jti(self, jti: str) -> bool:
+        """撤銷指定 jti 的 refresh token session。"""
+        async with self._session_factory() as session:
+            stmt = (
+                update(RefreshToken)
+                .where(
+                    RefreshToken.jti == jti,
+                    RefreshToken.is_active.is_(True),
+                )
+                .values(
+                    is_active=False,
+                    revoked_at=func.now(),
+                )
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return bool(result.rowcount and result.rowcount > 0)

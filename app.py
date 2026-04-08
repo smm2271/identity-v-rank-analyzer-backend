@@ -48,6 +48,7 @@ from database.database import AsyncSessionLocal
 from database.service import (
     ApiKeyService,
     GameMatchService,
+    RefreshTokenService,
     UserService,
     UserIdentityService,
     UserLoginLogService,
@@ -74,6 +75,7 @@ login_log_service = UserLoginLogService(AsyncSessionLocal)
 api_key_service = ApiKeyService(AsyncSessionLocal)
 match_service = GameMatchService(AsyncSessionLocal)
 ladder_score_service = CharacterLadderScoreService(AsyncSessionLocal)
+refresh_token_service = RefreshTokenService(AsyncSessionLocal)
 
 key_manager = KeyManager()
 jwt_service = JWTService(key_manager)
@@ -102,6 +104,7 @@ init_dependencies(
     api_key_service=api_key_service,
     match_service=match_service,
     ladder_score_service=ladder_score_service,
+    refresh_token_service=refresh_token_service,
 )
 
 # ── 路由註冊 ──────────────────────────────────

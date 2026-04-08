@@ -31,6 +31,7 @@ class TokenPayload:
     exp: datetime
     iat: datetime
     token_type: str = "access"  # 'access' 或 'refresh'
+    jti: str | None = None
 
 
 # ──────────────────────────────────────────────
@@ -121,7 +122,7 @@ class JWTService:
         self,
         user_uuid: uuid.UUID,
         token_ver: int,
-    ) -> str:
+    ) -> tuple[str, str]:
         """
         簽發 JWT Refresh Token（長期）。
 
@@ -134,19 +135,22 @@ class JWTService:
         refresh_token 不需要 user_name 等額外資訊，因為本系統JWT的優勢在前端。
         """
         now = datetime.now(timezone.utc)
+        refresh_jti = str(uuid.uuid4())
         sub_data = json.dumps({"uuid": str(user_uuid), "token_ver": token_ver})
         payload: Dict[str, Any] = {
             "sub": sub_data,
             "type": "refresh",
+            "jti": refresh_jti,
             "iat": now,
             "exp": now + timedelta(days=self._refresh_expire_days),
         }
 
-        return jwt.encode(
+        token = jwt.encode(
             payload,
             self._key_manager.private_key,
             algorithm=_ALGORITHM,
         )
+        return token, refresh_jti
 
     def create_token_pair(
         self,
@@ -162,11 +166,14 @@ class JWTService:
         Returns:
             {"access_token": "...", "refresh_token": "..."}
         """
+        refresh_token, refresh_jti = self.create_refresh_token(user_uuid=user_uuid, token_ver=token_ver)
+
         return {
             "access_token": self.create_access_token(
                 user_uuid=user_uuid, token_ver=token_ver, user_name=user_name, extra_claims=extra_claims
             ),
-            "refresh_token": self.create_refresh_token(user_uuid=user_uuid, token_ver=token_ver),
+            "refresh_token": refresh_token,
+            "refresh_jti": refresh_jti,
         }
 
     def verify_token(self, token: str) -> TokenPayload:
@@ -199,6 +206,7 @@ class JWTService:
             exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
             iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
             token_type=payload.get("type", "access"),
+            jti=payload.get("jti"),
         )
 
     async def verify_and_check_revocation(

@@ -55,22 +55,22 @@ from auth.login_interface import (
     IdentityNotFoundError,
 )
 from database.service import (
+    RefreshTokenService,
     UserService,
     UserIdentityService,
     UserLoginLogService,
 )
 from routes.dependencies import (
-    get_current_user,
     get_identity_service,
     get_jwt_service,
     get_login_factory,
     get_login_log_service,
+    get_refresh_token_service,
     get_user_service,
 )
 from routes.schemas import (
     AuthUserBasic,
     LoginRequest,
-    MessageResponse,
     OAuthFinalizeRequest,
     OAuthLinkRequest,
     OAuthAuthorizeResponse,
@@ -136,6 +136,36 @@ def _build_token_response(
             email=user.email,
         ),
     )
+
+
+async def _issue_token_response(
+    *,
+    user,
+    response: Response,
+    jwt_svc: JWTService,
+    refresh_token_svc: RefreshTokenService,
+) -> TokenResponse:
+    token_pair = jwt_svc.create_token_pair(
+        user_uuid=user.id,
+        token_ver=user.token_ver,
+        user_name=user.username or "",
+    )
+    refresh_payload = jwt_svc.verify_token(token_pair["refresh_token"])
+    if refresh_payload.jti is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Refresh token 缺少 jti，無法建立 session",
+        )
+
+    expires_at = refresh_payload.exp.replace(tzinfo=None)
+    await refresh_token_svc.create_refresh_token(
+        user_id=user.id,
+        jti=refresh_payload.jti,
+        expires_at=expires_at,
+    )
+
+    _set_refresh_cookie(response, token_pair["refresh_token"])
+    return _build_token_response(user=user, access_token=token_pair["access_token"])
 
 
 def _generate_signed_state() -> str:
@@ -334,6 +364,7 @@ async def oauth_callback(
     user_svc: UserService = Depends(get_user_service),
     identity_svc: UserIdentityService = Depends(get_identity_service),
     jwt_svc: JWTService = Depends(get_jwt_service),
+    refresh_token_svc: RefreshTokenService = Depends(get_refresh_token_service),
     log_svc: UserLoginLogService = Depends(get_login_log_service),
 ):
     """
@@ -465,9 +496,6 @@ async def oauth_callback(
                 detail="身份對應的使用者不存在",
             )
 
-    # Step 5: 簽發 JWT
-    token_pair = jwt_svc.create_token_pair(user_uuid=user.id, token_ver=user.token_ver, user_name=user.username or "")
-
     await log_svc.log_login(
         user_id=user.id,
         identifier=f"{user_info.provider}:{user_info.provider_key}",
@@ -476,8 +504,12 @@ async def oauth_callback(
         user_agent=user_agent,
     )
 
-    _set_refresh_cookie(response, token_pair["refresh_token"])
-    return _build_token_response(user=user, access_token=token_pair["access_token"])
+    return await _issue_token_response(
+        user=user,
+        response=response,
+        jwt_svc=jwt_svc,
+        refresh_token_svc=refresh_token_svc,
+    )
 
 
 @auth_router.post(
@@ -493,6 +525,7 @@ async def oauth_finalize(
     user_svc: UserService = Depends(get_user_service),
     identity_svc: UserIdentityService = Depends(get_identity_service),
     jwt_svc: JWTService = Depends(get_jwt_service),
+    refresh_token_svc: RefreshTokenService = Depends(get_refresh_token_service),
     log_svc: UserLoginLogService = Depends(get_login_log_service),
 ):
     pending = _verify_oauth_flow_token(body.registration_token, "registration")
@@ -534,8 +567,6 @@ async def oauth_finalize(
         agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
-
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("User-Agent")
     await log_svc.log_login(
@@ -546,8 +577,12 @@ async def oauth_finalize(
         user_agent=user_agent,
     )
 
-    _set_refresh_cookie(response, token_pair["refresh_token"])
-    return _build_token_response(user=user, access_token=token_pair["access_token"])
+    return await _issue_token_response(
+        user=user,
+        response=response,
+        jwt_svc=jwt_svc,
+        refresh_token_svc=refresh_token_svc,
+    )
 
 
 @auth_router.post(
@@ -563,6 +598,7 @@ async def link_identity(
     user_svc: UserService = Depends(get_user_service),
     identity_svc: UserIdentityService = Depends(get_identity_service),
     jwt_svc: JWTService = Depends(get_jwt_service),
+    refresh_token_svc: RefreshTokenService = Depends(get_refresh_token_service),
     log_svc: UserLoginLogService = Depends(get_login_log_service),
 ):
     pending = _verify_oauth_flow_token(body.link_token, "link")
@@ -625,8 +661,6 @@ async def link_identity(
             detail="使用者資料異常",
         )
 
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
-
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("User-Agent")
     await log_svc.log_login(
@@ -637,8 +671,12 @@ async def link_identity(
         user_agent=user_agent,
     )
 
-    _set_refresh_cookie(response, token_pair["refresh_token"])
-    return _build_token_response(user=user, access_token=token_pair["access_token"])
+    return await _issue_token_response(
+        user=user,
+        response=response,
+        jwt_svc=jwt_svc,
+        refresh_token_svc=refresh_token_svc,
+    )
 
 
 # ══════════════════════════════════════════════════
@@ -660,6 +698,7 @@ async def register(
     user_svc: UserService = Depends(get_user_service),
     identity_svc: UserIdentityService = Depends(get_identity_service),
     jwt_svc: JWTService = Depends(get_jwt_service),
+    refresh_token_svc: RefreshTokenService = Depends(get_refresh_token_service),
     log_svc: UserLoginLogService = Depends(get_login_log_service),
 ):
     """
@@ -723,9 +762,6 @@ async def register(
         agreed_to_terms_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
-    # Step 5: 簽發 JWT
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
-
     await log_svc.log_login(
         user_id=user.id,
         identifier=body.email,
@@ -734,8 +770,12 @@ async def register(
         user_agent=user_agent,
     )
 
-    _set_refresh_cookie(response, token_pair["refresh_token"])
-    return _build_token_response(user=user, access_token=token_pair["access_token"])
+    return await _issue_token_response(
+        user=user,
+        response=response,
+        jwt_svc=jwt_svc,
+        refresh_token_svc=refresh_token_svc,
+    )
 
 
 @auth_router.post(
@@ -750,6 +790,7 @@ async def login(
     factory: LoginProviderFactory = Depends(get_login_factory),
     user_svc: UserService = Depends(get_user_service),
     jwt_svc: JWTService = Depends(get_jwt_service),
+    refresh_token_svc: RefreshTokenService = Depends(get_refresh_token_service),
     log_svc: UserLoginLogService = Depends(get_login_log_service),
 ):
     """
@@ -819,8 +860,6 @@ async def login(
             detail="使用者資料異常",
         )
 
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
-
     await log_svc.log_login(
         user_id=user.id,
         identifier=body.identifier,
@@ -829,8 +868,12 @@ async def login(
         user_agent=user_agent,
     )
 
-    _set_refresh_cookie(response, token_pair["refresh_token"])
-    return _build_token_response(user=user, access_token=token_pair["access_token"])
+    return await _issue_token_response(
+        user=user,
+        response=response,
+        jwt_svc=jwt_svc,
+        refresh_token_svc=refresh_token_svc,
+    )
 
 
 # ══════════════════════════════════════════════════
@@ -848,6 +891,7 @@ async def refresh_token(
     response: Response,
     jwt_svc: JWTService = Depends(get_jwt_service),
     user_svc: UserService = Depends(get_user_service),
+    refresh_token_svc: RefreshTokenService = Depends(get_refresh_token_service),
 ):
     """
     以 Refresh Token 換發新的 Access + Refresh Token 組合。
@@ -887,6 +931,19 @@ async def refresh_token(
             detail="請提供 refresh token，而非 access token",
         )
 
+    if payload.jti is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token 缺少 jti，請重新登入",
+        )
+
+    active_session = await refresh_token_svc.get_active_by_jti(payload.jti)
+    if active_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token session 已失效，請重新登入",
+        )
+
     user = await user_svc.get_by_id(payload.uuid)
     if user is None:
         raise HTTPException(
@@ -894,29 +951,45 @@ async def refresh_token(
             detail="使用者不存在",
         )
 
-    token_pair = jwt_svc.create_token_pair(user.id, user.token_ver, user_name=user.username or "")
+    if active_session.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token session 與使用者不一致",
+        )
 
-    _set_refresh_cookie(response, token_pair["refresh_token"])
-    return _build_token_response(user=user, access_token=token_pair["access_token"])
+    await refresh_token_svc.revoke_by_jti(payload.jti)
+
+    return await _issue_token_response(
+        user=user,
+        response=response,
+        jwt_svc=jwt_svc,
+        refresh_token_svc=refresh_token_svc,
+    )
 
 
 @auth_router.post(
     "/logout",
-    response_model=MessageResponse,
-    summary="登出（撤銷所有 Token）",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="登出（僅撤銷當前 Session）",
 )
 async def logout(
+    request: Request,
     response: Response,
-    current_user=Depends(get_current_user),
+    jwt_svc: JWTService = Depends(get_jwt_service),
     user_svc: UserService = Depends(get_user_service),
+    refresh_token_svc: RefreshTokenService = Depends(get_refresh_token_service),
 ):
     """
-    登出當前使用者。
-
-    透過遞增 token_ver 使所有已簽發的 JWT 立即失效（全裝置登出）。
-    (S) 單一職責：僅協調 UserService.increment_token_ver()，不含其他邏輯。
+    登出當前裝置，僅撤銷本次請求對應的 refresh token session。
     """
-    await user_svc.increment_token_ver(current_user.id)
-    _clear_refresh_cookie(response)
+    refresh_token_value = request.cookies.get(_REFRESH_COOKIE_NAME)
+    if refresh_token_value:
+        try:
+            payload = await jwt_svc.verify_and_check_revocation(refresh_token_value, user_svc)
+            if payload.token_type == "refresh" and payload.jti is not None:
+                await refresh_token_svc.revoke_by_jti(payload.jti)
+        except (TokenError, TokenExpiredError, TokenInvalidError, TokenRevokedError):
+            # token 不可用時仍清 cookie，維持 logout 操作冪等
+            pass
 
-    return MessageResponse(message="已成功登出")
+    _clear_refresh_cookie(response)

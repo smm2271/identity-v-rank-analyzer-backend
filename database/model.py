@@ -37,6 +37,7 @@ class User(Base):
     matches: Mapped[List["GameMatch"]] = relationship(back_populates="uploader")
     login_logs: Mapped[List["UserLoginLog"]] = relationship(back_populates="user")
     ladder_scores: Mapped[List["CharacterLadderScore"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens: Mapped[List["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class UserIdentity(Base):
@@ -144,4 +145,23 @@ class CharacterLadderScore(Base):
 
     __table_args__ = (
         Index("ix_ladder_scores_user_pid_recorded", "user_id", "pid", "recorded_at"),
+    )
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    jti: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+
+    __table_args__ = (
+        Index("ix_refresh_tokens_user_id", "user_id"),
+        Index("ix_refresh_tokens_is_active", "is_active"),
     )
