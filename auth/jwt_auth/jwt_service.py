@@ -61,6 +61,16 @@ _DEFAULT_ACCESS_EXPIRE_MINUTES = 15
 _DEFAULT_REFRESH_EXPIRE_DAYS = 7
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    cleaned = raw.split("#", 1)[0].strip()
+    if not cleaned:
+        return default
+    return int(cleaned)
+
+
 class JWTService:
     """
     JWT 簽發與驗證服務。
@@ -75,12 +85,8 @@ class JWTService:
 
     def __init__(self, key_manager: KeyManager) -> None:
         self._key_manager = key_manager
-        self._access_expire_minutes = int(
-            os.getenv("JWT_ACCESS_EXPIRE_MINUTES", _DEFAULT_ACCESS_EXPIRE_MINUTES)
-        )
-        self._refresh_expire_days = int(
-            os.getenv("JWT_REFRESH_EXPIRE_DAYS", _DEFAULT_REFRESH_EXPIRE_DAYS)
-        )
+        self._access_expire_minutes = _env_int("JWT_ACCESS_EXPIRE_MINUTES", _DEFAULT_ACCESS_EXPIRE_MINUTES)
+        self._refresh_expire_days = _env_int("JWT_REFRESH_EXPIRE_DAYS", _DEFAULT_REFRESH_EXPIRE_DAYS)
 
     def create_access_token(
         self,
