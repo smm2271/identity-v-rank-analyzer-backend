@@ -168,6 +168,56 @@ async def _issue_token_response(
     return _build_token_response(user=user, access_token=token_pair["access_token"])
 
 
+async def _link_identity_after_oauth_verification(
+    *,
+    link_token: str,
+    user,
+    verified_provider: str,
+    verified_provider_key: str,
+    identity_svc: UserIdentityService,
+) -> None:
+    pending = _verify_oauth_flow_token(link_token, "link")
+    if pending is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="關聯暫存資料已失效或無效，請重新登入",
+        )
+
+    if not user.email or user.email != pending.get("email"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="驗證帳號與待關聯 Email 不一致",
+        )
+
+    if (
+        pending["provider"] == verified_provider
+        and pending["provider_key"] == verified_provider_key
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="請使用原本已綁定的第三方帳號進行驗證",
+        )
+
+    existing_identity = await identity_svc.get_by_provider(
+        pending["provider"],
+        pending["provider_key"],
+    )
+    if existing_identity is not None:
+        if existing_identity.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="此 OAuth 身分已被其他帳號綁定",
+            )
+        return
+
+    await identity_svc.create_identity(
+        user_id=user.id,
+        provider=pending["provider"],
+        provider_key=pending["provider_key"],
+        secret_hash=pending.get("secret_hash"),
+    )
+
+
 def _generate_signed_state() -> str:
     """產生 HMAC 簽名的 OAuth state 參數（防 CSRF）。"""
     nonce = secrets.token_urlsafe(16)
@@ -358,6 +408,7 @@ async def oauth_callback(
     code: str = Query(..., description="OAuth authorization code"),
     state: str = Query(..., description="CSRF state 參數"),
     redirect_uri: str = Query(..., description="與 authorize 時使用的相同回呼 URL"),
+    link_token: str | None = Query(None, description="待關聯 OAuth 流程 token（驗證模式使用）"),
     request: Request = None,  # type: ignore[assignment]
     response: Response = None,  # type: ignore[assignment]
     factory: LoginProviderFactory = Depends(get_login_factory),
@@ -433,7 +484,7 @@ async def oauth_callback(
 
     if identity is None:
         # Step 4a: 尚未綁定此 provider_key
-        # 若 email 已存在，代表同一人曾以其他方式註冊，直接補綁身份來源。
+        # 若 email 已存在，要求先以既有第三方身份重新登入驗證，再執行關聯。
         secret_hash = None
         if tokens.refresh_token:
             secret_hash = hashlib.sha256(
@@ -451,7 +502,15 @@ async def oauth_callback(
             )
 
         if existing_user is not None:
-            link_token = _build_oauth_flow_token(
+            existing_identities = await identity_svc.get_all_by_user(existing_user.id)
+            verification_oauth_providers = sorted(
+                {
+                    item.provider
+                    for item in existing_identities
+                    if item.provider not in {"password", user_info.provider}
+                }
+            )
+            pending_link_token = _build_oauth_flow_token(
                 kind="link",
                 provider=user_info.provider,
                 provider_key=user_info.provider_key,
@@ -463,10 +522,11 @@ async def oauth_callback(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
                     "code": "LINK_REQUIRED",
-                    "message": "此 Email 已被其他帳號使用，請先完成帳號關聯",
-                    "link_token": link_token,
+                    "message": "此 Email 已被其他帳號使用，請先以原有第三方帳號完成驗證後再關聯",
+                    "link_token": pending_link_token,
                     "provider": user_info.provider,
                     "email": user_info.email,
+                    "verification_oauth_providers": verification_oauth_providers,
                 },
             )
         registration_token = _build_oauth_flow_token(
@@ -494,6 +554,15 @@ async def oauth_callback(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="身份對應的使用者不存在",
+            )
+
+        if link_token is not None:
+            await _link_identity_after_oauth_verification(
+                link_token=link_token,
+                user=user,
+                verified_provider=user_info.provider,
+                verified_provider_key=user_info.provider_key,
+                identity_svc=identity_svc,
             )
 
     await log_svc.log_login(
