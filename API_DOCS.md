@@ -34,6 +34,7 @@
 |------|--------|---------|
 | **JWT Bearer Token** | `Authorization: Bearer <access_token>` | `/users/*`、`/auth/logout` |
 | **API Key** | `X-API-Key: <api_key>` | `/api/v1/matches/*` |
+| **JWT Bearer Token** | `Authorization: Bearer <access_token>` | `/api/v1/matches/*`（亦可使用） |
 
 ---
 
@@ -360,13 +361,13 @@
 
 ## Matches — 對戰紀錄
 
-> **所有 Match 端點皆需透過 `X-API-Key` Header 驗證。**
+> **所有 Match 端點可使用 `X-API-Key` 或 `Authorization: Bearer <access_token>` 驗證。**
 
 ### POST /api/v1/matches
 
 上傳一筆遊戲對戰紀錄，可同時包含所有玩家資訊。
 
-**認證**：`X-API-Key: <api_key>`
+**認證**：`X-API-Key: <api_key>` 或 `Authorization: Bearer <access_token>`
 
 **請求 Body** `application/json`
 
@@ -443,7 +444,7 @@
 
 | 狀態碼 | 說明 |
 |--------|------|
-| `401` | 未提供 API Key |
+| `401` | 未提供可用憑證 / Token 無效或已過期 |
 | `403` | API Key 無效或已停用 |
 | `409` | 此對戰紀錄已上傳過（room_guuid + uploader 重複） |
 
@@ -453,7 +454,7 @@
 
 取得當前使用者上傳的所有對戰紀錄（分頁）。
 
-**認證**：`X-API-Key: <api_key>`
+**認證**：`X-API-Key: <api_key>` 或 `Authorization: Bearer <access_token>`
 
 **查詢參數**
 
@@ -499,7 +500,7 @@
 
 | 狀態碼 | 說明 |
 |--------|------|
-| `401` | 未提供 API Key |
+| `401` | 未提供可用憑證 / Token 無效或已過期 |
 | `403` | API Key 無效或已停用 |
 
 ---
@@ -508,7 +509,7 @@
 
 取得單筆對戰紀錄詳情（含玩家資訊）。僅能查看自己上傳的紀錄。
 
-**認證**：`X-API-Key: <api_key>`
+**認證**：`X-API-Key: <api_key>` 或 `Authorization: Bearer <access_token>`
 
 **路徑參數**
 
@@ -557,7 +558,7 @@
 
 | 狀態碼 | 說明 |
 |--------|------|
-| `401` | 未提供 API Key |
+| `401` | 未提供可用憑證 / Token 無效或已過期 |
 | `403` | API Key 無效或已停用 / 無權查看此紀錄 |
 | `404` | 對戰紀錄不存在 |
 

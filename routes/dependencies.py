@@ -243,23 +243,60 @@ def _hash_api_key(raw_key: str) -> str:
 
 
 async def verify_api_key(
+    request: Request,
     api_key: str | None = Security(api_key_header),
     api_key_svc: ApiKeyService = Depends(get_api_key_service),
+    jwt_svc: JWTService = Depends(get_jwt_service),
+    user_svc: UserService = Depends(get_user_service),
 ) -> uuid.UUID:
     """
-    驗證 API Key 並回傳對應的 user_id。
+    驗證 API Key 或 JWT Access Token 並回傳對應的 user_id。
 
     (S) 單一職責：僅做「驗證 → 回傳 user_id」，不處理業務邏輯。
     (D) 依賴反轉：透過 FastAPI Depends 取得 ApiKeyService。
 
     Raises:
-        HTTPException 401: 未提供 API Key
+        HTTPException 401: 未提供可用憑證或憑證型別錯誤
         HTTPException 403: API Key 無效或已停用
     """
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ").strip()
+
+        try:
+            payload = await jwt_svc.verify_and_check_revocation(token, user_svc)
+        except TokenExpiredError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token 已過期，請使用 refresh token 換發新 token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except TokenRevokedError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token 已被撤銷，請重新登入",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except (TokenInvalidError, TokenError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token 無效",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if payload.token_type != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="請使用 access token 進行 API 請求",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return payload.uuid
+
     if api_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API Key. Please provide X-API-Key header.",
+            detail="Missing credentials. Please provide X-API-Key or Authorization Bearer token.",
         )
 
     key_hash = _hash_api_key(api_key)

@@ -169,7 +169,7 @@ class LatestLadderScoresResponse(BaseModel):
     response_model=MatchResponse,
     status_code=status.HTTP_201_CREATED,
     summary="上傳對戰紀錄",
-    description="上傳一筆遊戲對戰紀錄，需包含認知分更新資訊。需透過 X-API-Key 驗證。",
+    description="上傳一筆遊戲對戰紀錄，需包含認知分更新資訊。可透過 X-API-Key 或 Authorization Bearer 驗證。",
 )
 async def upload_match(
     body: MatchUploadRequest,
@@ -219,7 +219,7 @@ async def upload_match(
     "",
     response_model=MatchListResponse,
     summary="取得我的對戰紀錄列表",
-    description="取得當前使用者上傳的所有對戰紀錄（分頁）。需透過 X-API-Key 驗證。",
+    description="取得當前使用者上傳的所有對戰紀錄（分頁）。可透過 X-API-Key 或 Authorization Bearer 驗證。",
 )
 async def list_my_matches(
     offset: int = 0,
@@ -243,7 +243,7 @@ async def list_my_matches(
     "/{match_id}",
     response_model=MatchDetailResponse,
     summary="取得對戰紀錄詳情",
-    description="取得單筆對戰紀錄（含玩家資訊）。需透過 X-API-Key 驗證，且僅能查看自己上傳的紀錄。",
+    description="取得單筆對戰紀錄（含玩家資訊）。可透過 X-API-Key 或 Authorization Bearer 驗證，且僅能查看自己上傳的紀錄。",
 )
 async def get_match_detail(
     match_id: uuid.UUID,
@@ -274,7 +274,7 @@ async def get_match_detail(
     "/ladder-scores/latest",
     response_model=LatestLadderScoresResponse,
     summary="取得最新認知分",
-    description="取得當前使用者各角色最新的認知分紀錄。需透過 X-API-Key 驗證。",
+    description="取得當前使用者各角色最新的認知分紀錄。可透過 X-API-Key 或 Authorization Bearer 驗證。",
 )
 async def get_latest_ladder_scores(
     user_id: uuid.UUID = Depends(verify_api_key),
@@ -298,7 +298,7 @@ async def get_latest_ladder_scores(
     "/ladder-scores/{pid}",
     response_model=LadderScoresListResponse,
     summary="取得認知分歷史",
-    description="取得當前使用者指定角色的認知分變化歷史（最新優先）。需透過 X-API-Key 驗證。",
+    description="取得當前使用者指定角色的認知分變化歷史（最新優先）。可透過 X-API-Key 或 Authorization Bearer 驗證。",
 )
 async def get_ladder_score_history(
     pid: int = Path(..., description="角色 ID"),
