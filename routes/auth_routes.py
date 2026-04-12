@@ -91,6 +91,7 @@ _OAUTH_FLOW_SECRET = os.getenv("OAUTH_FLOW_SECRET", secrets.token_urlsafe(32))
 _STATE_MAX_AGE_SECONDS = 600  # state 有效期 10 分鐘
 _OAUTH_FLOW_MAX_AGE_SECONDS = 1800
 _REFRESH_COOKIE_NAME = "refresh_token"
+_REFRESH_COOKIE_PATH = os.getenv("JWT_REFRESH_COOKIE_PATH", "/api/auth")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -111,7 +112,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
         httponly=True,
         secure=True,
         samesite="lax",
-        path="/auth/refresh",
+        path=_REFRESH_COOKIE_PATH,
         max_age=max_age,
     )
 
@@ -119,7 +120,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
 def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(
         key=_REFRESH_COOKIE_NAME,
-        path="/auth/refresh",
+        path=_REFRESH_COOKIE_PATH,
     )
 
 
