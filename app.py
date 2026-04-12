@@ -31,7 +31,10 @@ SOLID 原則對應
 import dotenv
 dotenv.load_dotenv()  # 統一在啟動時載入 .env 環境變數
 
+import logging
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 import uvicorn
 # 移除 Middleware 的 import
 # 因為 nginx 反向代理不會有 CORS
@@ -60,6 +63,13 @@ from routes.user_routes import user_router
 from routes.match import router as match_router
 
 app = FastAPI(title="Identity V Rank Analyzer API")
+logger = logging.getLogger("uvicorn.error")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    logger.error("OMG Error: %s", exc.errors())  # 這會把詳細錯誤印在 systemctl log 裡
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 # ══════════════════════════════════════════════════
 # 建構所有具體 Service（Composition Root）
@@ -120,6 +130,7 @@ app.include_router(match_router, prefix="/api/v1")
 @app.get("/")
 async def read_root():
     return {"Hello": "World"}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=9999)
