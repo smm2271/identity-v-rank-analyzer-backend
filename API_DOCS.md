@@ -18,6 +18,9 @@
 - [Users — 使用者資訊](#users--使用者資訊)
   - [GET /users/me](#get-usersme)
   - [GET /users/me/identities](#get-usersmeidentities)
+  - [POST /users/me/api-keys](#post-usersmeapi-keys)
+  - [GET /users/me/api-keys](#get-usersmeapi-keys)
+  - [DELETE /users/me/api-keys/{key_id}](#delete-usersmeapi-keyskey_id)
 - [Matches — 對戰紀錄](#matches--對戰紀錄)
   - [POST /api/v1/matches](#post-apiv1matches)
   - [GET /api/v1/matches](#get-apiv1matches)
@@ -35,6 +38,8 @@
 | **JWT Bearer Token** | `Authorization: Bearer <access_token>` | `/users/*`、`/auth/logout` |
 | **API Key** | `X-API-Key: <api_key>` | `/api/v1/matches/*` |
 | **JWT Bearer Token** | `Authorization: Bearer <access_token>` | `/api/v1/matches/*`（亦可使用） |
+
+> `POST /users/me/api-keys`、`GET /users/me/api-keys`、`DELETE /users/me/api-keys/{key_id}` 僅接受 Bearer Token，不接受 `X-API-Key`。
 
 ---
 
@@ -356,6 +361,101 @@
 | 狀態碼 | 說明 |
 |--------|------|
 | `401` | 未提供 Token / Token 無效或已過期 |
+
+---
+
+### POST /users/me/api-keys
+
+申請一把新的 API Key（明文 key 僅回傳一次）。
+
+**認證**：`Authorization: Bearer <access_token>`（不接受 `X-API-Key`）
+
+**請求 Body** `application/json`
+
+```json
+{
+  "name": "CLI Key"
+}
+```
+
+| 欄位 | 必填 | 型別 | 說明 |
+|------|------|------|------|
+| `name` | ❌ | `string` | API Key 顯示名稱（最長 50 字元） |
+
+**回應** `201 Created`
+
+```json
+{
+  "id": "cc0e8400-e29b-41d4-a716-446655440006",
+  "name": "CLI Key",
+  "api_key": "ivr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "is_active": true,
+  "created_at": "2026-04-12T09:30:00"
+}
+```
+
+**錯誤**
+
+| 狀態碼 | 說明 |
+|--------|------|
+| `401` | 未提供 Token / Token 無效或已過期 |
+
+---
+
+### GET /users/me/api-keys
+
+列出當前使用者所有 API Key（不回傳明文 key）。
+
+**認證**：`Authorization: Bearer <access_token>`（不接受 `X-API-Key`）
+
+**回應** `200 OK`
+
+```json
+[
+  {
+    "id": "cc0e8400-e29b-41d4-a716-446655440006",
+    "name": "CLI Key",
+    "is_active": true,
+    "last_used_at": "2026-04-12T10:00:00",
+    "created_at": "2026-04-12T09:30:00"
+  }
+]
+```
+
+**錯誤**
+
+| 狀態碼 | 說明 |
+|--------|------|
+| `401` | 未提供 Token / Token 無效或已過期 |
+
+---
+
+### DELETE /users/me/api-keys/{key_id}
+
+停用指定 API Key（軟刪除）。
+
+**認證**：`Authorization: Bearer <access_token>`（不接受 `X-API-Key`）
+
+**路徑參數**
+
+| 參數 | 型別 | 說明 |
+|------|------|------|
+| `key_id` | `uuid` | API Key UUID |
+
+**回應** `200 OK`
+
+```json
+{
+  "message": "API Key 已停用"
+}
+```
+
+**錯誤**
+
+| 狀態碼 | 說明 |
+|--------|------|
+| `401` | 未提供 Token / Token 無效或已過期 |
+| `404` | API Key 不存在 |
 
 ---
 

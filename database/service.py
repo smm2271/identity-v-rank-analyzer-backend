@@ -316,6 +316,7 @@ class ApiKeyService(BaseRepository[ApiKey]):
             )
             session.add(api_key)
             await session.commit()
+            await session.refresh(api_key)
             return api_key
 
     async def get_by_key_hash(self, key_hash: str) -> Optional[ApiKey]:

@@ -108,3 +108,32 @@ class IdentityResponse(BaseModel):
     provider_key: str
 
     model_config = {"from_attributes": True}
+
+
+class ApiKeyCreateRequest(BaseModel):
+    """建立 API Key 請求"""
+    name: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="API Key 顯示名稱（方便管理）",
+    )
+
+
+class ApiKeyCreateResponse(BaseModel):
+    """建立 API Key 回應（只在建立當下回傳明文 key）"""
+    id: uuid.UUID
+    name: Optional[str]
+    api_key: str
+    is_active: bool
+    created_at: datetime
+
+
+class ApiKeyListItemResponse(BaseModel):
+    """API Key 列表項目（不回傳明文 key）"""
+    id: uuid.UUID
+    name: Optional[str]
+    is_active: bool
+    last_used_at: Optional[datetime]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
