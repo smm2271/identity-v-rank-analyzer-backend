@@ -111,47 +111,56 @@ def init_dependencies(
 # ──────────────────────────────────────────────
 
 def get_user_service() -> UserService:
-    assert _user_service is not None, "UserService 尚未初始化，請先呼叫 init_dependencies()"
+    if _user_service is None:
+        raise RuntimeError("UserService 尚未初始化，請先呼叫 init_dependencies()")
     return _user_service
 
 
 def get_identity_service() -> UserIdentityService:
-    assert _identity_service is not None, "UserIdentityService 尚未初始化"
+    if _identity_service is None:
+        raise RuntimeError("UserIdentityService 尚未初始化")
     return _identity_service
 
 
 def get_login_log_service() -> UserLoginLogService:
-    assert _login_log_service is not None, "UserLoginLogService 尚未初始化"
+    if _login_log_service is None:
+        raise RuntimeError("UserLoginLogService 尚未初始化")
     return _login_log_service
 
 
 def get_jwt_service() -> JWTService:
-    assert _jwt_service is not None, "JWTService 尚未初始化"
+    if _jwt_service is None:
+        raise RuntimeError("JWTService 尚未初始化")
     return _jwt_service
 
 
 def get_login_factory() -> LoginProviderFactory:
-    assert _login_factory is not None, "LoginProviderFactory 尚未初始化"
+    if _login_factory is None:
+        raise RuntimeError("LoginProviderFactory 尚未初始化")
     return _login_factory
 
 
 def get_api_key_service() -> ApiKeyService:
-    assert _api_key_service is not None, "ApiKeyService 尚未初始化"
+    if _api_key_service is None:
+        raise RuntimeError("ApiKeyService 尚未初始化")
     return _api_key_service
 
 
 def get_match_service() -> GameMatchService:
-    assert _match_service is not None, "GameMatchService 尚未初始化"
+    if _match_service is None:
+        raise RuntimeError("GameMatchService 尚未初始化")
     return _match_service
 
 
 def get_ladder_score_service() -> CharacterLadderScoreService:
-    assert _ladder_score_service is not None, "CharacterLadderScoreService 尚未初始化"
+    if _ladder_score_service is None:
+        raise RuntimeError("CharacterLadderScoreService 尚未初始化")
     return _ladder_score_service
 
 
 def get_refresh_token_service() -> RefreshTokenService:
-    assert _refresh_token_service is not None, "RefreshTokenService 尚未初始化"
+    if _refresh_token_service is None:
+        raise RuntimeError("RefreshTokenService 尚未初始化")
     return _refresh_token_service
 
 
