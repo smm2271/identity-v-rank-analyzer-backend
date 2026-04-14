@@ -648,16 +648,26 @@ class CharacterLadderScoreService(BaseRepository[CharacterLadderScore]):
         )
 
     async def get_latest_scores_by_user(self, user_id: uuid.UUID):
+        """獲取使用者每個角色最新的認知分紀錄。"""
         async with self._session_factory() as session:
-            stmt = (
-                select(CharacterLadderScore)
-                .where(CharacterLadderScore.user_id == user_id)
-                .distinct(CharacterLadderScore.pid)
-                .order_by(
+            # 建立子查詢：取得每個角色最新的記錄日期
+            subq = (
+                select(
                     CharacterLadderScore.pid,
-                    CharacterLadderScore.recorded_at.desc(),
+                    func.max(CharacterLadderScore.recorded_at).label("max_recorded_at"),
                 )
+                .where(CharacterLadderScore.user_id == user_id)
+                .group_by(CharacterLadderScore.pid)
+                .subquery()
             )
+
+            # 主查詢：將原表與子查詢 Join，取得完整的最新記錄實體
+            stmt = select(CharacterLadderScore).join(
+                subq,
+                (CharacterLadderScore.pid == subq.c.pid)
+                & (CharacterLadderScore.recorded_at == subq.c.max_recorded_at),
+            ).where(CharacterLadderScore.user_id == user_id)
+
             result = await session.execute(stmt)
             scores = result.scalars().all()
 
