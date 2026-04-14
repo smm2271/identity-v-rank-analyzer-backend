@@ -379,6 +379,7 @@ class GameMatchService(BaseRepository[GameMatch]):
         game_save_time: Optional[datetime] = None,
         cipher_progress: Optional[Dict[str, Any]] = None,
         players: Optional[List[Dict[str, Any]]] = None,
+        ladder_scores: Optional[List[Dict[str, Any]]] = None,
     ) -> GameMatch:
         """
         建立對戰紀錄，可同時建立所有玩家資訊。
@@ -410,6 +411,16 @@ class GameMatchService(BaseRepository[GameMatch]):
                 for player_data in players:
                     player = PlayerInfo(match=match, **player_data)
                     session.add(player)
+
+            # 若提供了認知分數據，一併建立 (Atomicity Fix)
+            if ladder_scores:
+                for ls_data in ladder_scores:
+                    ls = CharacterLadderScore(
+                        user_id=uploader_id,
+                        pid=ls_data["pid"],
+                        score=ls_data["score"],
+                    )
+                    session.add(ls)
 
             await session.commit()
             return match

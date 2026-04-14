@@ -175,7 +175,6 @@ async def upload_match(
     body: MatchUploadRequest,
     user_id: uuid.UUID = Depends(verify_api_key),
     match_svc: GameMatchService = Depends(get_match_service),
-    ladder_svc: CharacterLadderScoreService = Depends(get_ladder_score_service),
 ):
     # 檢查是否已上傳過（room_guuid + uploader_id 唯一）
     existing = await match_svc.get_by_room_guuid(body.room_guuid, user_id)
@@ -189,6 +188,11 @@ async def upload_match(
     if body.players:
         players_data = [p.model_dump() for p in body.players]
 
+    # 準備認知分資訊 (Atomicity Fix)
+    ladder_scores_data: Optional[List[Dict[str, Any]]] = None
+    if body.ladder_score_info:
+        ladder_scores_data = [item.model_dump() for item in body.ladder_score_info]
+
     match = await match_svc.create_match(
         room_guuid=body.room_guuid,
         uploader_id=user_id,
@@ -201,16 +205,8 @@ async def upload_match(
         game_save_time=body.game_save_time,
         cipher_progress=body.cipher_progress,
         players=players_data,
+        ladder_scores=ladder_scores_data,
     )
-
-    # 保存認知分資訊
-    if body.ladder_score_info:
-        for ladder_info in body.ladder_score_info:
-            await ladder_svc.create_ladder_score(
-                user_id=user_id,
-                pid=ladder_info.pid,
-                score=ladder_info.score,
-            )
 
     return match
 
